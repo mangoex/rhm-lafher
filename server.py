@@ -353,6 +353,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             
             self.send_json({"success": True, "message": f"Collaborator saved at row {target_row}"})
             
+        except PermissionError:
+            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             import traceback
             self.send_json({"error": f"Error saving collaborator: {e}", "details": traceback.format_exc()}, 500)
@@ -416,6 +418,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             self.send_json({"success": True, "message": f"Incidences applied to collaborator at row {found_row}"})
 
+        except PermissionError:
+            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             import traceback
             self.send_json({"error": f"Error saving incidences: {e}", "details": traceback.format_exc()}, 500)
@@ -440,6 +444,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             self.send_json({"success": True, "message": "Global configuration saved in Excel."})
 
+        except PermissionError:
+            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             self.send_json({"error": f"Error saving global configuration: {e}"}, 500)
 
