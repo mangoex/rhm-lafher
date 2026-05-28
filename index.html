@@ -39,8 +39,10 @@
     </nav>
     
     <div class="header-actions">
+      <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: flex; align-items: center; gap: 0.25rem;"><i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado</div>
       <div id="period-indicator" class="badge info">Periodo Activo: 16 al 30 Abr 2026</div>
       <button id="theme-toggle" class="theme-toggle" title="Cambiar Tema">
+
         <i data-lucide="sun" class="sun-icon"></i>
         <i data-lucide="moon" class="moon-icon" style="display:none;"></i>
       </button>
@@ -256,13 +258,17 @@
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Cálculos automáticos en tiempo real. Celdas con fondo naranja representan descuentos aplicados por incidencias.</p>
           </div>
           <div class="action-buttons">
-            <button class="btn btn-secondary" id="btn-export-excel">
-              <i data-lucide="download"></i> Exportar a Excel
+            <button class="btn btn-secondary" id="btn-export-excel" style="display: none;">
+              <i data-lucide="download"></i> Descargar Temporal CSV
             </button>
-            <button class="btn btn-primary" id="btn-recalculate">
-              <i data-lucide="refresh-cw"></i> Recalcular Todo
+            <button class="btn btn-primary" id="btn-sync-excel">
+              <i data-lucide="save"></i> Aplicar cambios o actualizar
+            </button>
+            <button class="btn btn-secondary" id="btn-recalculate">
+              <i data-lucide="refresh-cw"></i> Recargar Excel
             </button>
           </div>
+
         </div>
 
         <div class="prenomina-sheet-container">
