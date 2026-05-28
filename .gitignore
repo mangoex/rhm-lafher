@@ -1,0 +1,10 @@
+# Ignorar archivos temporales de Excel (bloqueos)
+~$*.xlsx
+~$*.xls
+
+# Ignorar archivos de registro
+*.log
+
+# Carpetas de desarrollo y dependencias (si aplica)
+node_modules/
+.env
