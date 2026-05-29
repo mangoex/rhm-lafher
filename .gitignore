@@ -2,8 +2,9 @@
 ~$*.xlsx
 ~$*.xls
 
-# Ignorar archivos de registro
+# Ignorar archivos de registro y respaldos
 *.log
+*.bak
 
 # Carpetas de desarrollo y dependencias (si aplica)
 node_modules/
