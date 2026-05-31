@@ -228,15 +228,20 @@ def inject_formulas_dynamically(ws, row, schema):
         return get_field_letter(schema, field_name)
     
     uma_cell = schema.get("uma_cell", "S3")
+    if "$" not in uma_cell:
+        import re
+        m = re.match(r"([A-Z]+)([0-9]+)", uma_cell)
+        if m:
+            uma_cell = f"${m.group(1)}${m.group(2)}"
     
     # Build core formulas dynamically based on letter configurations
     formulas = {
         "sdi": f"={L('salario_diario')}{row}*{L('factor_integracion')}{row}",
-        "sueldo_nominal": f"={L('salario_diario')}{row}*30.4",
-        "puntualidad": f"={L('sdi')}{row}*0.1*30.4",
-        "asistencia": f"={L('sdi')}{row}*0.1*30.4",
-        "vales_despensa": f"=${uma_cell}*0.4*30.4",
-        "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",{L("sueldo_nominal")}{row}*0.11,0)',
+        "sueldo_nominal": f"={L('salario_diario')}{row}*$N$3",
+        "puntualidad": f"={L('sdi')}{row}*0.1*$N$3",
+        "asistencia": f"={L('sdi')}{row}*0.1*$N$3",
+        "vales_despensa": f"={uma_cell}*($P$3/100)*$N$3",
+        "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",{L("sueldo_nominal")}{row}*($L$3/100),0)',
         "percepcion_sueldos": f"=SUM({L('sueldo_nominal')}{row}:{L('fondo_ahorro')}{row})",
         "bruto_mensual": f"=SUM({L('percepcion_sueldos')}{row}:{L('deuda_carro')}{row})",
         "bruto_quincenal": f"={L('bruto_mensual')}{row}/2",
@@ -334,13 +339,38 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             sheet_v = wb_v.active
             sheet_f = wb_f.active
 
-            # Read dynamic UMA cell
+            # Read dynamic configuration cells
             uma_cell_coord = schema.get("uma_cell", "S3")
-            uma = sheet_v[uma_cell_coord].value
-            try:
-                uma = float(str(uma).replace(",", "").strip()) if uma is not None else 117.31
-            except:
-                uma = 117.31
+            vales_pct_cell = schema.get("vales_pct_cell", "P3")
+            dias_mes_cell = schema.get("dias_mes_cell", "N3")
+            fa_pct_cell = schema.get("fa_pct_cell", "L3")
+            aguinaldo_cell = schema.get("aguinaldo_cell", "J3")
+            prima_cell = schema.get("prima_cell", "H3")
+
+            def get_cell_float(sheet, cell, default):
+                val = sheet[cell].value
+                if val is None:
+                    return default
+                try:
+                    return float(str(val).replace(",", "").strip())
+                except:
+                    return default
+
+            uma = get_cell_float(sheet_v, uma_cell_coord, 117.31)
+            vales_pct = get_cell_float(sheet_v, vales_pct_cell, 40.0)
+            dias_mes = get_cell_float(sheet_v, dias_mes_cell, 30.4)
+            fa_pct = get_cell_float(sheet_v, fa_pct_cell, 11.0)
+            aguinaldo = get_cell_float(sheet_v, aguinaldo_cell, 15.0)
+            prima = get_cell_float(sheet_v, prima_cell, 25.0)
+
+            config = {
+                "uma": uma,
+                "valesPct": vales_pct,
+                "diasMes": dias_mes,
+                "faPct": fa_pct,
+                "aguinaldo": aguinaldo,
+                "prima": prima
+            }
 
             nombre_col = get_field_index(schema, "nombre")
             id_col = get_field_index(schema, "id")
@@ -422,6 +452,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({
                 "period": schema.get("period", "16 al 30 Abr 2026"),
                 "uma": uma,
+                "config": config,
                 "employees": employees
             })
 
@@ -482,7 +513,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     found_row = row
                 elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
                     found_row = row
-                    break
                 row += 1
 
             if found_row:
@@ -559,6 +589,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             # 6. Re-sum totals in Row 21 or new totals row
             new_totals_row = totals_row + 1 if not found_row else totals_row
             columns_to_sum = [
+                "sueldo_nominal", "puntualidad", "asistencia", "vales_despensa", "fondo_ahorro",
                 "percepcion_sueldos", "asimilados", "gasolina", "socio", "efectivo", "facturado", 
                 "deuda_carro", "bruto_mensual", "descuento_adicional", "bruto_mensual_neto", "descuento_quincenal_acumulado"
             ]
@@ -676,18 +707,45 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             uma = float(body.get("uma", 117.31))
+            vales_pct = float(body.get("vales_pct", 40.0))
+            dias_mes = float(body.get("dias_mes", 30.4))
+            fa_pct = float(body.get("fa_pct", 11.0))
+            aguinaldo = float(body.get("aguinaldo", 15.0))
+            prima = float(body.get("prima", 25.0))
             api_key = body.get("gemini_api_key", "")
 
             schema = load_schema()
             schema["gemini_api_key"] = api_key
+            schema["uma_cell"] = "S3"
+            schema["vales_pct_cell"] = "P3"
+            schema["dias_mes_cell"] = "N3"
+            schema["fa_pct_cell"] = "L3"
+            schema["aguinaldo_cell"] = "J3"
+            schema["prima_cell"] = "H3"
             save_schema(schema)
 
             wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
             ws = wb.active
 
-            # Write UMA in S3 (Column 19, Row 3)
-            uma_cell = schema.get("uma_cell", "S3")
-            ws[uma_cell].value = uma
+            # Write configurations and their labels in Row 3 of Excel
+            ws["G3"].value = "PRIMA %:"
+            ws["H3"].value = prima
+            ws["H3"].number_format = 'General'
+            ws["I3"].value = "AGUINALDO DYS:"
+            ws["J3"].value = aguinaldo
+            ws["J3"].number_format = 'General'
+            ws["K3"].value = "FA %:"
+            ws["L3"].value = fa_pct
+            ws["L3"].number_format = 'General'
+            ws["M3"].value = "DIAS MES:"
+            ws["N3"].value = dias_mes
+            ws["N3"].number_format = 'General'
+            ws["O3"].value = "VALES %:"
+            ws["P3"].value = vales_pct
+            ws["P3"].number_format = 'General'
+            ws["R3"].value = "UMA 2026:"
+            ws["S3"].value = uma
+            ws["S3"].number_format = 'General'
 
             wb.save(EXCEL_PATH)
             wb.close()

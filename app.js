@@ -59,7 +59,11 @@ document.addEventListener("DOMContentLoaded", () => {
       })
       .then(data => {
         state.employees = data.employees;
-        state.config.uma = data.uma;
+        if (data.config) {
+          state.config = { ...state.config, ...data.config };
+        } else if (data.uma) {
+          state.config.uma = data.uma;
+        }
         state.period = data.period;
 
         if (dbIndicator) {
@@ -866,12 +870,25 @@ document.addEventListener("DOMContentLoaded", () => {
     formConfig.addEventListener("submit", (e) => {
       e.preventDefault();
       const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
+      const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
+      const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
+      const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
+      const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
+      const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
       const api_key = document.getElementById("cfg-gemini-key").value.trim();
 
       fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uma: uma, gemini_api_key: api_key })
+        body: JSON.stringify({
+          uma: uma,
+          vales_pct: vales_pct,
+          dias_mes: dias_mes,
+          fa_pct: fa_pct,
+          aguinaldo: aguinaldo,
+          prima: prima,
+          gemini_api_key: api_key
+        })
       })
         .then(res => res.json())
         .then(resData => {

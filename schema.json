@@ -411,5 +411,10 @@
       "editable": false,
       "incidence_editable": false
     }
-  ]
+  ],
+  "vales_pct_cell": "P3",
+  "dias_mes_cell": "N3",
+  "fa_pct_cell": "L3",
+  "aguinaldo_cell": "J3",
+  "prima_cell": "H3"
 }
