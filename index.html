@@ -388,6 +388,19 @@
               <input type="number" id="cfg-prima" min="0" max="100" value="25">
             </div>
             <div class="form-group full-width" style="grid-column: 1 / -1; margin-top: 1rem; border-top: 1px dashed var(--panel-border); padding-top: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <label for="cfg-payroll-rules" style="margin: 0;">Reglas de Nómina de la Empresa (Particularidades)</label>
+                <div>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-load-rules-file" style="margin: 0; display: flex; align-items: center; gap: 5px; font-size: 0.8rem; padding: 0.35rem 0.75rem;">
+                    <i data-lucide="file-text" style="width: 14px; height: 14px;"></i> Cargar Archivo de Reglas...
+                  </button>
+                  <input type="file" id="input-rules-file" accept=".txt,.md,.docx" style="display: none;">
+                </div>
+              </div>
+              <textarea id="cfg-payroll-rules" rows="12" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); font-family: monospace; padding: 10px; margin-top: 5px; box-sizing: border-box; resize: vertical; line-height: 1.5; font-size: 0.9rem;" placeholder="Escribe o carga las reglas particulares de nómina para esta empresa aquí..."></textarea>
+              <small style="color: var(--text-muted); display: block; margin-top: 5px;">Estas reglas sirven como base de especificación y validación para el cálculo de la prenómina. Soporta archivos de texto (.txt), markdown (.md) o Word (.docx).</small>
+            </div>
+            <div class="form-group full-width" style="grid-column: 1 / -1; margin-top: 1rem; border-top: 1px dashed var(--panel-border); padding-top: 1rem;">
               <label for="cfg-gemini-key">Clave de API de Gemini (Autoguardado Local)</label>
               <input type="password" id="cfg-gemini-key" placeholder="AIzaSy...">
               <small style="color: var(--text-muted);">Requerida para detectar cambios estructurales en el Excel y auto-sanar la base de datos.</small>

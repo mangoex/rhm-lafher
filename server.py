@@ -42,15 +42,51 @@ if getattr(sys, 'frozen', False):
         except Exception as e:
             print("Error extracting template schema.json:", e)
 
+def extract_default_payroll_rules(docx_path):
+    if not os.path.exists(docx_path):
+        return ""
+    try:
+        import zipfile
+        import xml.etree.ElementTree as ET
+        import io
+        with open(docx_path, 'rb') as f:
+            data_bytes = f.read()
+        with zipfile.ZipFile(io.BytesIO(data_bytes)) as z:
+            doc_xml = z.read('word/document.xml')
+            root = ET.fromstring(doc_xml)
+            paragraphs = []
+            for elem in root.iter():
+                tag_name = elem.tag.split('}')[-1]
+                if tag_name == 'p':
+                    p_text = []
+                    for child in elem.iter():
+                        child_tag = child.tag.split('}')[-1]
+                        if child_tag == 't' and child.text:
+                            p_text.append(child.text)
+                    text_str = "".join(p_text).strip()
+                    if text_str:
+                        paragraphs.append(text_str)
+            return "\n\n".join(paragraphs)
+    except Exception as e:
+        print("Error extracting default payroll rules from docx:", e)
+        return ""
+
 def load_schema():
+    default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": [], "payroll_rules": ""}
     if not os.path.exists(SCHEMA_PATH):
-        return {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": []}
+        docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
+        default_schema["payroll_rules"] = extract_default_payroll_rules(docx_local)
+        return default_schema
     try:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            if "payroll_rules" not in data or not data["payroll_rules"]:
+                docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
+                data["payroll_rules"] = extract_default_payroll_rules(docx_local)
+            return data
     except Exception as e:
         print("Error loading schema.json:", e)
-        return {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": []}
+        return default_schema
 
 def save_schema(schema):
     try:
@@ -476,15 +512,20 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        path_only = self.path.split("?")[0]
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b""
+
+        if path_only == "/api/parse-docx":
+            self.parse_docx_endpoint(post_data)
+            return
+
         try:
             body = json.loads(post_data.decode("utf-8")) if post_data else {}
         except Exception as e:
             self.send_json({"error": f"Invalid JSON: {e}"}, 400)
             return
 
-        path_only = self.path.split("?")[0]
         if path_only == "/api/collaborator":
             self.save_collaborator(body)
         elif path_only == "/api/incidences":
@@ -495,6 +536,37 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_clarify(body)
         else:
             self.send_json({"error": "Endpoint not found"}, 404)
+
+    def parse_docx_endpoint(self, post_data):
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            import io
+            
+            if not post_data:
+                self.send_json({"error": "Empty body"}, 400)
+                return
+
+            with zipfile.ZipFile(io.BytesIO(post_data)) as z:
+                doc_xml = z.read('word/document.xml')
+                root = ET.fromstring(doc_xml)
+                
+                paragraphs = []
+                for elem in root.iter():
+                    tag_name = elem.tag.split('}')[-1]
+                    if tag_name == 'p':
+                        p_text = []
+                        for child in elem.iter():
+                            child_tag = child.tag.split('}')[-1]
+                            if child_tag == 't' and child.text:
+                                p_text.append(child.text)
+                        text_str = "".join(p_text).strip()
+                        if text_str:
+                            paragraphs.append(text_str)
+                extracted_text = "\n\n".join(paragraphs)
+            self.send_json({"text": extracted_text})
+        except Exception as e:
+            self.send_json({"error": f"Failed to parse docx file: {e}"}, 500)
 
     def get_schema(self):
         schema = check_and_heal_schema()
@@ -914,6 +986,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             prima = float(body.get("prima", 25.0))
             api_key = body.get("gemini_api_key", "")
             db_path = body.get("db_path", "")
+            payroll_rules = body.get("payroll_rules", "")
 
             schema = load_schema()
             schema["gemini_api_key"] = api_key
@@ -923,6 +996,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             schema["fa_pct_cell"] = "L3"
             schema["aguinaldo_cell"] = "J3"
             schema["prima_cell"] = "H3"
+            schema["payroll_rules"] = payroll_rules
             
             if db_path is not None:
                 db_path_lower = db_path.strip().lower()

@@ -866,8 +866,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 12. View Rendering - CONFIGURATION
-  // 12. View Rendering - CONFIGURATION
-  const formConfig = document.getElementById("form-config");
+  // 12. View Rendering - CO  const formConfig = document.getElementById("form-config");
   if (formConfig) {
     formConfig.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -879,7 +878,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
       const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
       const api_key = document.getElementById("cfg-gemini-key").value.trim();
-
+      const rules = document.getElementById("cfg-payroll-rules") ? document.getElementById("cfg-payroll-rules").value : "";
+ 
       if (db_path.toLowerCase().endsWith(".pages")) {
         showToast("Apple Pages (.pages) es un procesador de textos. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para conectarlo como base de datos.", "error");
         return;
@@ -888,7 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast("Apple Numbers (.numbers) es un formato cerrado de Apple. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para poder usarlo.", "error");
         return;
       }
-
+ 
       fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -900,7 +900,8 @@ document.addEventListener("DOMContentLoaded", () => {
           aguinaldo: aguinaldo,
           prima: prima,
           gemini_api_key: api_key,
-          db_path: db_path
+          db_path: db_path,
+          payroll_rules: rules
         })
       })
         .then(res => res.json())
@@ -916,6 +917,71 @@ document.addEventListener("DOMContentLoaded", () => {
           console.error("Error guardando config:", err);
           showToast("Error al escribir configuración. ¿Está abierto o bloqueado el archivo?", "error");
         });
+    });
+  }
+
+  // 12b. File upload for payroll rules
+  const btnLoadRulesFile = document.getElementById("btn-load-rules-file");
+  const inputRulesFile = document.getElementById("input-rules-file");
+  if (btnLoadRulesFile && inputRulesFile) {
+    btnLoadRulesFile.addEventListener("click", () => {
+      inputRulesFile.click();
+    });
+
+    inputRulesFile.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === "txt" || ext === "md") {
+        showToast("Leyendo archivo de texto de reglas...", "info");
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const text = evt.target.result;
+          const rulesTextArea = document.getElementById("cfg-payroll-rules");
+          if (rulesTextArea) {
+            rulesTextArea.value = text;
+            showToast("Reglas de nómina actualizadas desde el archivo.");
+          }
+        };
+        reader.readAsText(file);
+      } else if (ext === "docx") {
+        showToast("Extrayendo texto de archivo Word (.docx)...", "info");
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const arrayBuffer = evt.target.result;
+          fetch("/api/parse-docx", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "X-File-Name": encodeURIComponent(file.name)
+            },
+            body: arrayBuffer
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.text) {
+              const rulesTextArea = document.getElementById("cfg-payroll-rules");
+              if (rulesTextArea) {
+                rulesTextArea.value = data.text;
+                showToast("Reglas de nómina actualizadas desde archivo Word.");
+              }
+            } else if (data.error) {
+              showToast(data.error, "error");
+            }
+          })
+          .catch(err => {
+            console.error("Error al parsear DOCX:", err);
+            showToast("Error al parsear archivo Word.", "error");
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        showToast("Formato de archivo no soportado. Usa .txt, .md o .docx", "error");
+      }
+      
+      // Clear input so same file can be loaded again
+      inputRulesFile.value = "";
     });
   }
 
@@ -1001,6 +1067,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("cfg-fa-pct").value = state.config.faPct;
     document.getElementById("cfg-aguinaldo").value = state.config.aguinaldo;
     document.getElementById("cfg-prima").value = state.config.prima;
+
+    const rulesTextArea = document.getElementById("cfg-payroll-rules");
+    if (rulesTextArea && state.schema) {
+      rulesTextArea.value = state.schema.payroll_rules || "";
+    }
   }
 
   // 13. Modal Handle: Alta / Edición Colaboradores
