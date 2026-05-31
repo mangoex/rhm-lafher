@@ -416,5 +416,6 @@
   "dias_mes_cell": "N3",
   "fa_pct_cell": "L3",
   "aguinaldo_cell": "J3",
-  "prima_cell": "H3"
+  "prima_cell": "H3",
+  "db_path": "Nomina ciega.xlsx"
 }

@@ -919,6 +919,77 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const btnSelectDbPath = document.getElementById("btn-select-db-path");
+  if (btnSelectDbPath) {
+    btnSelectDbPath.addEventListener("click", () => {
+      showToast("Abriendo explorador de archivos nativo...", "info");
+      fetch("/api/select-file")
+        .then(res => res.json())
+        .then(data => {
+          if (data.selected_path) {
+            const dbPathInput = document.getElementById("cfg-db-path");
+            if (dbPathInput) {
+              dbPathInput.value = data.selected_path;
+              
+              // Automatically save and reload selected database file
+              const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
+              const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
+              const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
+              const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
+              const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
+              const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
+              const api_key = document.getElementById("cfg-gemini-key").value.trim();
+
+              if (data.selected_path.toLowerCase().endsWith(".pages")) {
+                showToast("Apple Pages (.pages) es un procesador de textos. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para conectarlo como base de datos.", "error");
+                return;
+              }
+              if (data.selected_path.toLowerCase().endsWith(".numbers")) {
+                showToast("Apple Numbers (.numbers) es un formato cerrado de Apple. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para poder usarlo.", "error");
+                return;
+              }
+
+              showToast("Guardando ruta de archivo y cargando datos...", "info");
+
+              fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  uma: uma,
+                  vales_pct: vales_pct,
+                  dias_mes: dias_mes,
+                  fa_pct: fa_pct,
+                  aguinaldo: aguinaldo,
+                  prima: prima,
+                  gemini_api_key: api_key,
+                  db_path: data.selected_path
+                })
+              })
+                .then(res => res.json())
+                .then(resData => {
+                  if (resData.error) {
+                    showToast(resData.error, "error");
+                    return;
+                  }
+                  showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
+                  loadState();
+                })
+                .catch(err => {
+                  console.error("Error al guardar ruta seleccionada:", err);
+                  showToast("Error al cargar la base de datos seleccionada.", "error");
+                });
+            }
+          } else {
+            showToast("Selección de archivo cancelada.", "info");
+          }
+        })
+        .catch(err => {
+          console.error("Error al abrir diálogo de selección de archivo:", err);
+          showToast("Error al abrir explorador de archivos nativo.", "error");
+        });
+    });
+  }
+
   function renderConfig() {
     const dbPathInput = document.getElementById("cfg-db-path");
     if (dbPathInput) {

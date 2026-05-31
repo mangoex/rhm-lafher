@@ -158,6 +158,73 @@ def save_workbook_agnostic(wb, path):
     else:
         wb.save(path)
 
+def select_file_via_dialog():
+    # 1. Try pywebview first if active windows exist
+    try:
+        import webview
+        if hasattr(webview, "windows") and webview.windows:
+            win = webview.windows[0]
+            res = win.create_file_dialog(
+                dialogue_type=webview.OPEN_DIALOG,
+                file_types=('Archivos de Nómina (*.xlsx;*.csv)', 'Excel (*.xlsx)', 'CSV (*.csv)', 'Todos (*.*)')
+            )
+            if res:
+                return res[0] if isinstance(res, (list, tuple)) else res
+            return None
+    except Exception as e:
+        print("Failed to open dialog via pywebview:", e)
+
+    # 2. Fallback to AppleScript on macOS (completely thread-safe)
+    if sys.platform == "darwin":
+        import subprocess
+        try:
+            cmd = "osascript -e 'POSIX path of (choose file of type {\"xlsx\", \"csv\"} with prompt \"Seleccione el archivo de Prenómina\")'"
+            proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if proc.returncode == 0:
+                path = proc.stdout.strip()
+                if path:
+                    return path
+            return None
+        except Exception as e:
+            print("Failed to open dialog via osascript:", e)
+
+    # 3. Fallback to PowerShell on Windows (completely thread-safe)
+    if sys.platform == "win32":
+        import subprocess
+        try:
+            cmd = (
+                "powershell -Command \""
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+                "$f.Filter = 'Nómina Files (*.xlsx;*.csv)|*.xlsx;*.csv'; "
+                "if ($f.ShowDialog() -eq 'OK') { $f.FileName }\""
+            )
+            proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if proc.returncode == 0:
+                path = proc.stdout.strip()
+                if path:
+                    return path
+            return None
+        except Exception as e:
+            print("Failed to open dialog via powershell:", e)
+
+    # 4. Fallback to Tkinter on non-macOS/Windows or if others failed (best effort)
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        file_path = filedialog.askopenfilename(
+            title="Seleccionar archivo de Prenómina",
+            filetypes=[("Archivos de Nómina", "*.xlsx;*.csv"), ("Todos", "*.*")]
+        )
+        root.destroy()
+        return file_path if file_path else None
+    except Exception as e:
+        print("Failed to open dialog via tkinter:", e)
+        return None
+
 # Extract database template if missing at start
 copy_template_if_needed(get_excel_path())
 
@@ -382,6 +449,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.get_employees()
         elif self.path == "/api/schema":
             self.get_schema()
+        elif self.path == "/api/select-file":
+            self.select_file()
         else:
             super().do_GET()
 
@@ -408,6 +477,10 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def get_schema(self):
         schema = check_and_heal_schema()
         self.send_json(schema)
+
+    def select_file(self):
+        path = select_file_via_dialog()
+        self.send_json({"selected_path": path})
 
     def save_clarify(self, body):
         schema = load_schema()
