@@ -114,6 +114,16 @@ def get_excel_path():
         return os.path.abspath(os.path.join(CONFIG_DIR, "Nomina ciega.xlsx"))
     return os.path.abspath(os.path.join(BASE_DIR, "Nomina ciega.xlsx"))
 
+def find_headers_row(ws):
+    # Scan the first 15 rows to find the row containing header cells
+    for r in range(1, 16):
+        # We check the first 10 columns
+        for c in range(1, min(ws.max_column + 1, 11)):
+            val = ws.cell(row=r, column=c).value
+            if val and any(x in str(val).upper() for x in ["NOMBRE COMPLETO", "COD.", "NO."]):
+                return r
+    return 5 # Fallback to 5 if not found
+
 def copy_template_if_needed(db_path):
     if os.path.exists(db_path):
         return
@@ -212,26 +222,11 @@ def save_workbook_agnostic(wb, path):
         wb.save(path)
 
 def select_file_via_dialog():
-    # 1. Try pywebview first if active windows exist
-    try:
-        import webview
-        if hasattr(webview, "windows") and webview.windows:
-            win = webview.windows[0]
-            res = win.create_file_dialog(
-                dialogue_type=webview.OPEN_DIALOG,
-                file_types=('Archivos de Nómina (*.xlsx;*.csv)', 'Excel (*.xlsx)', 'CSV (*.csv)', 'Todos (*.*)')
-            )
-            if res:
-                return res[0] if isinstance(res, (list, tuple)) else res
-            return None
-    except Exception as e:
-        print("Failed to open dialog via pywebview:", e)
-
-    # 2. Fallback to AppleScript on macOS (completely thread-safe)
+    # 1. Try AppleScript on macOS first (thread-safe, out-of-process)
     if sys.platform == "darwin":
         import subprocess
         try:
-            cmd = "osascript -e 'POSIX path of (choose file of type {\"xlsx\", \"csv\"} with prompt \"Seleccione el archivo de Prenómina\")'"
+            cmd = "osascript -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Prenómina\")'"
             proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if proc.returncode == 0:
                 path = proc.stdout.strip()
@@ -241,7 +236,7 @@ def select_file_via_dialog():
         except Exception as e:
             print("Failed to open dialog via osascript:", e)
 
-    # 3. Fallback to PowerShell on Windows (completely thread-safe)
+    # 2. Try PowerShell on Windows (thread-safe, out-of-process)
     if sys.platform == "win32":
         import subprocess
         try:
@@ -261,44 +256,28 @@ def select_file_via_dialog():
         except Exception as e:
             print("Failed to open dialog via powershell:", e)
 
-    # 4. Fallback to Tkinter on non-macOS/Windows or if others failed (best effort)
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        file_path = filedialog.askopenfilename(
-            title="Seleccionar archivo de Prenómina",
-            filetypes=[("Archivos de Nómina", "*.xlsx;*.csv"), ("Todos", "*.*")]
-        )
-        root.destroy()
-        return file_path if file_path else None
-    except Exception as e:
-        print("Failed to open dialog via tkinter:", e)
-        return None
-
-def select_rules_file_via_dialog():
-    # 1. Try pywebview first if active windows exist
+    # 3. Fallback to pywebview create_file_dialog (only if available)
     try:
         import webview
         if hasattr(webview, "windows") and webview.windows:
             win = webview.windows[0]
             res = win.create_file_dialog(
                 dialogue_type=webview.OPEN_DIALOG,
-                file_types=('Archivos de Reglas (*.txt;*.md;*.docx)', 'Documento de Word (*.docx)', 'Texto Plano (*.txt;*.md)', 'Todos (*.*)')
+                file_types=('Archivos de Nómina (*.xlsx;*.csv)', 'Excel (*.xlsx)', 'CSV (*.csv)', 'Todos (*.*)')
             )
             if res:
                 return res[0] if isinstance(res, (list, tuple)) else res
             return None
     except Exception as e:
-        print("Failed to open rules dialog via pywebview:", e)
+        print("Failed to open dialog via pywebview:", e)
+    return None
 
-    # 2. Fallback to AppleScript on macOS (completely thread-safe)
+def select_rules_file_via_dialog():
+    # 1. Try AppleScript on macOS first (thread-safe, out-of-process)
     if sys.platform == "darwin":
         import subprocess
         try:
-            cmd = "osascript -e 'POSIX path of (choose file of type {\"txt\", \"markdown\", \"md\", \"docx\"} with prompt \"Seleccione el archivo de Reglas de Nómina\")'"
+            cmd = "osascript -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Reglas de Nómina\")'"
             proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if proc.returncode == 0:
                 path = proc.stdout.strip()
@@ -308,7 +287,7 @@ def select_rules_file_via_dialog():
         except Exception as e:
             print("Failed to open rules dialog via osascript:", e)
 
-    # 3. Fallback to PowerShell on Windows (completely thread-safe)
+    # 2. Try PowerShell on Windows (thread-safe, out-of-process)
     if sys.platform == "win32":
         import subprocess
         try:
@@ -328,22 +307,21 @@ def select_rules_file_via_dialog():
         except Exception as e:
             print("Failed to open rules dialog via powershell:", e)
 
-    # 4. Fallback to Tkinter on non-macOS/Windows or if others failed (best effort)
+    # 3. Fallback to pywebview
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        file_path = filedialog.askopenfilename(
-            title="Seleccionar archivo de Reglas de Nómina",
-            filetypes=[("Archivos de Reglas", "*.txt;*.md;*.docx"), ("Todos", "*.*")]
-        )
-        root.destroy()
-        return file_path if file_path else None
+        import webview
+        if hasattr(webview, "windows") and webview.windows:
+            win = webview.windows[0]
+            res = win.create_file_dialog(
+                dialogue_type=webview.OPEN_DIALOG,
+                file_types=('Archivos de Reglas (*.txt;*.md;*.docx)', 'Documento de Word (*.docx)', 'Texto Plano (*.txt;*.md)', 'Todos (*.*)')
+            )
+            if res:
+                return res[0] if isinstance(res, (list, tuple)) else res
+            return None
     except Exception as e:
-        print("Failed to open rules dialog via tkinter:", e)
-        return None
+        print("Failed to open rules dialog via pywebview:", e)
+    return None
 
 # Extract database template if missing at start
 copy_template_if_needed(get_excel_path())
@@ -377,7 +355,7 @@ def call_gemini_api(prompt, api_key):
     data = json.dumps(req_data).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=3) as response:
             res_body = response.read().decode("utf-8")
             res_json = json.loads(res_body)
             candidate = res_json["candidates"][0]
@@ -480,9 +458,10 @@ def check_and_heal_schema():
     try:
         wb = load_workbook_agnostic(excel_path, data_only=True)
         ws = wb.active
+        headers_row = find_headers_row(ws)
         current_headers = []
         for col_idx in range(1, ws.max_column + 1):
-            val = ws.cell(row=5, column=col_idx).value
+            val = ws.cell(row=headers_row, column=col_idx).value
             current_headers.append(val)
         wb.close()
 
@@ -760,7 +739,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             neto_quincenal_col = get_field_index(schema, "neto_quincenal")
 
             employees = []
-            row = 6
+            headers_row = find_headers_row(sheet_v)
+            row = headers_row + 1
             while True:
                 nombre_val = sheet_v.cell(row=row, column=nombre_col).value
                 cod_val = sheet_v.cell(row=row, column=id_col).value
@@ -865,6 +845,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             id_col = get_field_index(schema, "id")
 
             row = 6
+            headers_row = find_headers_row(ws)
+            row = headers_row + 1
             found_row = None
             totals_row = None
             
@@ -982,15 +964,15 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 col_idx = get_field_index(schema, field)
                 letter = get_field_letter(schema, field)
                 if col_idx and letter:
-                    ws.cell(row=new_totals_row, column=col_idx).value = f"=SUM({letter}6:{letter}{new_totals_row-1})"
+                    ws.cell(row=new_totals_row, column=col_idx).value = f"=SUM({letter}{headers_row + 1}:{letter}{new_totals_row-1})"
             
             # AC and AG sum
             bruto_quincenal_col = get_field_index(schema, "bruto_quincenal")
             if bruto_quincenal_col:
-                ws.cell(row=new_totals_row, column=bruto_quincenal_col).value = f"=AF{new_totals_row}/2"
+                ws.cell(row=new_totals_row, column=bruto_quincenal_col).value = f"={bruto_mensual_neto_letter}{new_totals_row}/2"
             if neto_quincenal_col:
                 neto_quincenal_letter = get_field_letter(schema, "neto_quincenal")
-                ws.cell(row=new_totals_row, column=neto_quincenal_col).value = f"=SUM({neto_quincenal_letter}6:{neto_quincenal_letter}{new_totals_row-1})"
+                ws.cell(row=new_totals_row, column=neto_quincenal_col).value = f"=SUM({neto_quincenal_letter}{headers_row + 1}:{neto_quincenal_letter}{new_totals_row-1})"
 
             # Save file
             save_workbook_agnostic(wb, excel_path)
@@ -1022,7 +1004,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             nombre_col = get_field_index(schema, "nombre")
             id_col = get_field_index(schema, "id")
 
-            row = 6
+            headers_row = find_headers_row(ws)
+            row = headers_row + 1
             found_row = None
             is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
             temp_row_resolved = None

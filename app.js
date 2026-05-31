@@ -475,9 +475,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const status = filterStatus.value;
 
     const filtered = state.employees.filter(emp => {
-      const matchSearch = emp.nombre.toLowerCase().includes(query) || 
-                          emp.id.toLowerCase().includes(query) || 
-                          emp.puesto.toLowerCase().includes(query);
+      const name = (emp.nombre || "").toString().toLowerCase();
+      const code = (emp.id || "").toString().toLowerCase();
+      const puesto = (emp.puesto || "").toString().toLowerCase();
+      const matchSearch = name.includes(query) || 
+                          code.includes(query) || 
+                          puesto.includes(query);
       
       const matchEmpresa = !empresa || emp.empresa === empresa;
       const matchArea = !area || emp.area === area;
@@ -602,7 +605,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const query = incSearchColl.value.toLowerCase().trim();
     const filtered = state.employees.filter(emp => {
       const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
-      return !isBaja && (emp.nombre.toLowerCase().includes(query) || emp.id.toLowerCase().includes(query));
+      const name = (emp.nombre || "").toString().toLowerCase();
+      const code = (emp.id || "").toString().toLowerCase();
+      return !isBaja && (name.includes(query) || code.includes(query));
     });
 
     filtered.forEach(emp => {
@@ -866,7 +871,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 12. View Rendering - CONFIGURATION
-  // 12. View Rendering - CO  const formConfig = document.getElementById("form-config");
+  const formConfig = document.getElementById("form-config");
   if (formConfig) {
     formConfig.addEventListener("submit", (e) => {
       e.preventDefault();
