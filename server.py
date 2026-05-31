@@ -274,7 +274,7 @@ def call_gemini_api(prompt, api_key):
     data = json.dumps(req_data).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             res_body = response.read().decode("utf-8")
             res_json = json.loads(res_body)
             candidate = res_json["candidates"][0]

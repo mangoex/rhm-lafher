@@ -11,6 +11,15 @@ def start_server():
         httpd.serve_forever()
 
 if __name__ == "__main__":
+    # Force SSL and DNS initialization on the main thread to prevent macOS thread-safety crashes in background threads
+    try:
+        import ssl
+        import socket
+        ssl.create_default_context()
+        socket.getaddrinfo("generativelanguage.googleapis.com", 443)
+    except Exception as e:
+        print("Pre-initializing SSL/Network on main thread returned:", e)
+
     # Start local server in a daemon thread
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
