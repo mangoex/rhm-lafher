@@ -9,9 +9,38 @@ from datetime import datetime
 import traceback
 
 PORT = 8000
-DIRECTORY = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(DIRECTORY, "Nomina ciega.xlsx")
-SCHEMA_PATH = os.path.join(DIRECTORY, "schema.json")
+import sys
+
+# Resolve paths for PyInstaller standalone executables
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+    STATIC_DIR = getattr(sys, '_MEIPASS', BASE_DIR)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    STATIC_DIR = BASE_DIR
+
+EXCEL_PATH = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
+SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
+
+# Self-extract template files if missing in BASE_DIR (packaged executable support)
+import shutil
+if getattr(sys, 'frozen', False):
+    bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
+    bundled_schema = os.path.join(STATIC_DIR, "schema.json")
+    
+    if not os.path.exists(EXCEL_PATH) and os.path.exists(bundled_excel):
+        print(f"Excel file missing in executable directory. Copying template to: {EXCEL_PATH}")
+        try:
+            shutil.copyfile(bundled_excel, EXCEL_PATH)
+        except Exception as e:
+            print("Error extracting template Excel:", e)
+            
+    if not os.path.exists(SCHEMA_PATH) and os.path.exists(bundled_schema):
+        print(f"schema.json missing in executable directory. Copying template to: {SCHEMA_PATH}")
+        try:
+            shutil.copyfile(bundled_schema, SCHEMA_PATH)
+        except Exception as e:
+            print("Error extracting template schema.json:", e)
 
 def load_schema():
     if not os.path.exists(SCHEMA_PATH):
@@ -223,7 +252,7 @@ def inject_formulas_dynamically(ws, row, schema):
 
 class APIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=DIRECTORY, **kwargs)
+        super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
     def do_OPTIONS(self):
         self.send_response(200)
