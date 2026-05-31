@@ -6,8 +6,8 @@ import webview
 from server import APIHandler, PORT
 
 def start_server():
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), APIHandler) as httpd:
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("", PORT), APIHandler) as httpd:
         httpd.serve_forever()
 
 if __name__ == "__main__":

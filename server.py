@@ -226,12 +226,18 @@ def select_file_via_dialog():
     if sys.platform == "darwin":
         import subprocess
         try:
-            cmd = "osascript -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Prenómina\")'"
+            # Command System Events to activate (bringing its dialog window to the front)
+            cmd = "osascript -e 'tell application \"System Events\"' -e 'activate' -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Prenómina\")' -e 'end tell'"
             proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if proc.returncode == 0:
                 path = proc.stdout.strip()
                 if path:
                     return path
+            else:
+                print("osascript select_file_via_dialog failed:")
+                print("Exit code:", proc.returncode)
+                print("Stdout:", proc.stdout)
+                print("Stderr:", proc.stderr)
             return None
         except Exception as e:
             print("Failed to open dialog via osascript:", e)
@@ -277,12 +283,18 @@ def select_rules_file_via_dialog():
     if sys.platform == "darwin":
         import subprocess
         try:
-            cmd = "osascript -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Reglas de Nómina\")'"
+            # Command System Events to activate (bringing its dialog window to the front)
+            cmd = "osascript -e 'tell application \"System Events\"' -e 'activate' -e 'POSIX path of (choose file with prompt \"Seleccione el archivo de Reglas de Nómina\")' -e 'end tell'"
             proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if proc.returncode == 0:
                 path = proc.stdout.strip()
                 if path:
                     return path
+            else:
+                print("osascript select_rules_file_via_dialog failed:")
+                print("Exit code:", proc.returncode)
+                print("Stdout:", proc.stdout)
+                print("Stderr:", proc.stderr)
             return None
         except Exception as e:
             print("Failed to open rules dialog via osascript:", e)
@@ -403,18 +415,14 @@ def heal_schema_locally(current_headers, old_schema):
         return s
 
     for idx, h_raw in enumerate(current_headers):
-        if h_raw is None:
-            continue
-        h_str = str(h_raw).strip()
-        if not h_str:
-            continue
+        h_str = str(h_raw).strip() if h_raw is not None else ""
         
         h_upper = h_str.upper()
         col_idx = idx + 1
         letter = openpyxl.utils.get_column_letter(col_idx)
 
         # Check if this header already exists in old schema
-        if h_upper in old_by_header:
+        if h_str and h_upper in old_by_header:
             # Re-align existing column
             col = dict(old_by_header[h_upper])
             col["index"] = col_idx
@@ -422,54 +430,68 @@ def heal_schema_locally(current_headers, old_schema):
             new_columns.append(col)
             seen_fields.add(col["field"])
         else:
-            # This is a NEW column! Heal/create it locally.
-            field_name = clean_field_name(h_str, col_idx)
-            seen_fields.add(field_name)
-
-            # Determine type and category based on header text
-            category = "metadata"
-            col_type = "string"
-            editable = True
-            incidence_editable = False
-
-            h_lower = h_str.lower()
+            # This is a NEW or empty column!
+            # If it's completely empty, check if we can reuse an existing column from old_schema that has an empty header
+            old_col_at_idx = None
+            for col in old_columns:
+                if col.get("index") == col_idx and (col.get("header") is None or str(col.get("header")).strip() == ""):
+                    old_col_at_idx = col
+                    break
             
-            # Simple heuristic matching
-            if any(x in h_lower for x in ["fecha", "ingreso", "baja"]):
-                col_type = "date"
-            elif any(x in h_lower for x in ["cuenta", "activo", "s/n", "si/no"]):
-                col_type = "boolean"
-            elif any(x in h_lower for x in ["descuento", "deuda", "prestamo", "abono"]):
-                col_type = "float"
-                category = "deduction"
-                incidence_editable = True
-            elif any(x in h_lower for x in ["total", "suma", "sdi", "puntualidad", "asistencia", "nominal", "integracion", "acumulado", "bruto"]):
-                col_type = "float"
-                category = "calculated"
-                editable = False
-            elif any(x in h_lower for x in ["diario", "sueldo"]):
-                col_type = "float"
-                category = "nominal_imss"
-            elif any(x in h_lower for x in ["gasolina", "combustible", "bono", "comision", "efectivo", "facturado", "asimilados", "socio"]):
-                col_type = "float"
-                category = "others"
-            elif any(x in h_lower for x in ["monto", "pago", "cantidad", "pesos", "$", "%"]):
-                col_type = "float"
-                category = "others"
+            if old_col_at_idx:
+                col = dict(old_col_at_idx)
+                col["index"] = col_idx
+                col["letter"] = letter
+                new_columns.append(col)
+                seen_fields.add(col["field"])
+            else:
+                field_name = clean_field_name(h_str, col_idx)
+                seen_fields.add(field_name)
 
-            new_col = {
-                "index": col_idx,
-                "letter": letter,
-                "header": h_str,
-                "field": field_name,
-                "type": col_type,
-                "category": category,
-                "label": h_str,
-                "editable": editable,
-                "incidence_editable": incidence_editable
-            }
-            new_columns.append(new_col)
-            print(f"Locally detected and added new column: {h_str} (field: {field_name}, category: {category})")
+                # Determine type and category based on header text
+                category = "metadata"
+                col_type = "string"
+                editable = True
+                incidence_editable = False
+
+                h_lower = h_str.lower()
+                # Simple heuristic matching
+                if h_str:
+                    if any(x in h_lower for x in ["fecha", "ingreso", "baja"]):
+                        col_type = "date"
+                    elif any(x in h_lower for x in ["cuenta", "activo", "s/n", "si/no"]):
+                        col_type = "boolean"
+                    elif any(x in h_lower for x in ["descuento", "deuda", "prestamo", "abono"]):
+                        col_type = "float"
+                        category = "deduction"
+                        incidence_editable = True
+                    elif any(x in h_lower for x in ["total", "suma", "sdi", "puntualidad", "asistencia", "nominal", "integracion", "acumulado", "bruto"]):
+                        col_type = "float"
+                        category = "calculated"
+                        editable = False
+                    elif any(x in h_lower for x in ["diario", "sueldo"]):
+                        col_type = "float"
+                        category = "nominal_imss"
+                    elif any(x in h_lower for x in ["gasolina", "combustible", "bono", "comision", "efectivo", "facturado", "asimilados", "socio"]):
+                        col_type = "float"
+                        category = "others"
+                    elif any(x in h_lower for x in ["monto", "pago", "cantidad", "pesos", "$", "%"]):
+                        col_type = "float"
+                        category = "others"
+
+                new_col = {
+                    "index": col_idx,
+                    "letter": letter,
+                    "header": h_str if h_str else None,
+                    "field": field_name,
+                    "type": col_type,
+                    "category": category,
+                    "label": h_str if h_str else f"Columna {letter}",
+                    "editable": editable if h_str else False,
+                    "incidence_editable": incidence_editable
+                }
+                new_columns.append(new_col)
+                print(f"Locally detected and added column: {h_str or 'VACIA'} (field: {field_name}, category: {category})")
 
     # Sort columns by index
     updated_schema["columns"] = sorted(new_columns, key=lambda x: x["index"])
