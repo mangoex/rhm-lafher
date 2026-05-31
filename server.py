@@ -4,19 +4,228 @@ import json
 import os
 import openpyxl
 import urllib.parse
+import urllib.request
 from datetime import datetime
+import traceback
 
 PORT = 8000
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(DIRECTORY, "Nomina ciega.xlsx")
+SCHEMA_PATH = os.path.join(DIRECTORY, "schema.json")
+
+def load_schema():
+    if not os.path.exists(SCHEMA_PATH):
+        # Return empty shell if not exists
+        return {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": []}
+    try:
+        with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error loading schema.json:", e)
+        return {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": []}
+
+def save_schema(schema):
+    try:
+        with open(SCHEMA_PATH, "w", encoding="utf-8") as f:
+            json.dump(schema, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Error saving schema.json:", e)
+
+def get_field_index(schema, field_name):
+    for col in schema["columns"]:
+        if col["field"] == field_name:
+            return col["index"]
+    return None
+
+def get_field_letter(schema, field_name):
+    for col in schema["columns"]:
+        if col["field"] == field_name:
+            return col["letter"]
+    return ""
+
+def get_gemini_api_key(schema):
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or schema.get("gemini_api_key", "")
+
+def call_gemini_api(prompt, api_key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    req_data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json"
+        }
+    }
+    headers = {"Content-Type": "application/json"}
+    data = json.dumps(req_data).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_body = response.read().decode("utf-8")
+            res_json = json.loads(res_body)
+            candidate = res_json["candidates"][0]
+            text = candidate["content"]["parts"][0]["text"]
+            return json.loads(text)
+    except Exception as e:
+        print("Error calling Gemini API:", e)
+        return None
+
+def heal_schema_with_ai(current_headers, old_schema):
+    api_key = get_gemini_api_key(old_schema)
+    if not api_key:
+        print("Gemini API Key is missing. Creating a temporary pending clarification to guide the user.")
+        updated_schema = dict(old_schema)
+        updated_schema["pending_clarifications"] = [{
+            "field": "gemini_api_key",
+            "question": "Se han detectado cambios en las cabeceras de Excel, pero no hay una GEMINI_API_KEY configurada. Por favor, introduce tu clave en la pestaña Configuración para que el Agente pueda procesar y clasificar las nuevas columnas de forma automática.",
+            "options": ["Reintentar con clave configurada", "Omitir por ahora"]
+        }]
+        return updated_schema
+
+    old_columns_summary = []
+    for col in old_schema["columns"]:
+        old_columns_summary.append({
+            "index": col["index"],
+            "letter": col["letter"],
+            "header": col["header"],
+            "field": col["field"],
+            "category": col["category"]
+        })
+
+    prompt = f"""
+    You are an expert AI data engineer specialized in payroll system integrations.
+    The user has modified their Excel payroll spreadsheet. I will give you:
+    1. The old schema configuration mapping Excel columns to database fields.
+    2. The new list of headers read from row 5 of the Excel sheet.
+
+    Old columns mapping:
+    {json.dumps(old_columns_summary, ensure_ascii=False, indent=2)}
+
+    New Excel headers (1-based index):
+    {json.dumps([{ 'index': idx + 1, 'header': header } for idx, header in enumerate(current_headers) if header is not None], ensure_ascii=False, indent=2)}
+
+    Your task:
+    1. Align the columns index and letters to match the new headers. If headers shifted, update their index and letter accordingly.
+    2. Identify any NEW headers that were not in the old columns mapping.
+    3. Categorize new headers as one of the following:
+       - 'metadata': General info (text, dates, or boolean fields like flags)
+       - 'nominal_imss': Core IMSS daily salary or related fields (user editable float)
+       - 'others': Other monthly payment schemas (commissions, bonuses, petrol, etc. - user editable float)
+       - 'deduction': Incidences / discounts to apply (e.g. loans, debts - user editable float)
+       - 'calculated': Column calculated via formulas (e.g. SDI, Sueldo Nominal, sums)
+    4. For any new header, assign it a unique snake_case 'field' identifier (e.g. 'bono_asistencia', 'prestamo_personal').
+    5. Set 'type': 'float' for numeric payment fields, 'date' for date strings, 'boolean' for SI/NO flags, 'string' for general text.
+    6. Set 'label': A short clean UI label in Spanish (e.g. 'Bono de Asistencia ($)').
+    7. Set 'editable': true for metadata, nominal_imss, others.
+    8. Set 'incidence_editable': true for deductions.
+    9. If a new column is a new deduction or calculation variable and you are not 100% sure if it is a flat deduction or needs division (like a loan split over months), do NOT guess. Instead, add a clarification question to the 'pending_clarifications' list in the format:
+       {{
+         "field": "the_new_field_identifier",
+         "question": "A short clear question in Spanish asking the accountant how to calculate/apply this new column.",
+         "options": ["Option A text in Spanish", "Option B text in Spanish"]
+       }}
+    10. Return a JSON object with:
+        {{
+          "columns": [ ... ],
+          "pending_clarifications": [ ... ]
+        }}
+        The 'columns' array must contain the complete set of columns (both old/updated and new ones), sorted by index.
+
+    Respond strictly in JSON format.
+    """
+    res = call_gemini_api(prompt, api_key)
+    if res and "columns" in res:
+        updated_schema = dict(old_schema)
+        old_fields = {col["field"]: col for col in old_schema["columns"]}
+        merged_cols = []
+        for col in res["columns"]:
+            f_name = col["field"]
+            letter = openpyxl.utils.get_column_letter(col["index"])
+            col["letter"] = letter
+            if f_name in old_fields:
+                col["editable"] = old_fields[f_name].get("editable", col.get("editable", True))
+                col["incidence_editable"] = old_fields[f_name].get("incidence_editable", col.get("incidence_editable", False))
+                if "formula_template" in old_fields[f_name]:
+                    col["formula_template"] = old_fields[f_name]["formula_template"]
+            merged_cols.append(col)
+        updated_schema["columns"] = sorted(merged_cols, key=lambda x: x["index"])
+        updated_schema["pending_clarifications"] = res.get("pending_clarifications", [])
+        return updated_schema
+    else:
+        print("AI Schema healing failed or timed out. Using old schema as fallback.")
+        return old_schema
+
+def check_and_heal_schema():
+    schema = load_schema()
+    if not os.path.exists(EXCEL_PATH):
+        return schema
+    try:
+        wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
+        ws = wb.active
+        current_headers = []
+        for col_idx in range(1, ws.max_column + 1):
+            val = ws.cell(row=5, column=col_idx).value
+            current_headers.append(val)
+        wb.close()
+
+        while current_headers and current_headers[-1] is None:
+            current_headers.pop()
+
+        schema_headers = [col.get("header") for col in schema["columns"]]
+        while schema_headers and schema_headers[-1] is None:
+            schema_headers.pop()
+
+        mismatch = False
+        if len(current_headers) != len(schema_headers):
+            mismatch = True
+        else:
+            for ch, sh in zip(current_headers, schema_headers):
+                if ch != sh:
+                    mismatch = True
+                    break
+
+        if mismatch:
+            print("Excel headers mismatch detected! Running self-healing schema wrapper...")
+            new_schema = heal_schema_with_ai(current_headers, schema)
+            save_schema(new_schema)
+            return new_schema
+        return schema
+    except Exception as e:
+        print("Error checking schema alignment:", e)
+        return schema
+
+def inject_formulas_dynamically(ws, row, schema):
+    def L(field_name):
+        return get_field_letter(schema, field_name)
+    
+    uma_cell = schema.get("uma_cell", "S3")
+    
+    # Build core formulas dynamically based on letter configurations
+    formulas = {
+        "sdi": f"={L('salario_diario')}{row}*{L('factor_integracion')}{row}",
+        "sueldo_nominal": f"={L('salario_diario')}{row}*30.4",
+        "puntualidad": f"={L('sdi')}{row}*0.1*30.4",
+        "asistencia": f"={L('sdi')}{row}*0.1*30.4",
+        "vales_despensa": f"=${uma_cell}*0.4*30.4",
+        "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",{L("sueldo_nominal")}{row}*0.11,0)',
+        "percepcion_sueldos": f"=SUM({L('sueldo_nominal')}{row}:{L('fondo_ahorro')}{row})",
+        "bruto_mensual": f"=SUM({L('percepcion_sueldos')}{row}:{L('deuda_carro')}{row})",
+        "bruto_quincenal": f"={L('bruto_mensual')}{row}/2",
+        "bruto_mensual_neto": f"={L('bruto_mensual')}{row}-{L('descuento_adicional')}{row}",
+        "descuento_quincenal_acumulado": f"={L('bruto_quincenal')}{row}-{L('neto_quincenal')}{row}"
+    }
+
+    # Write formulas into the spreadsheet row
+    for col in schema["columns"]:
+        f = col["field"]
+        if f in formulas:
+            ws.cell(row=row, column=col["index"]).value = formulas[f]
 
 class APIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        # Serve static files from DIRECTORY
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
     def do_OPTIONS(self):
-        # CORS preflight headers
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -31,18 +240,16 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def do_GET(self):
-        # API Routes
         if self.path == "/api/employees":
             self.get_employees()
+        elif self.path == "/api/schema":
+            self.get_schema()
         else:
-            # Fallback to standard static file server
             super().do_GET()
 
     def do_POST(self):
-        # Read JSON body
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b""
-        
         try:
             body = json.loads(post_data.decode("utf-8")) if post_data else {}
         except Exception as e:
@@ -55,145 +262,148 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_incidences(body)
         elif self.path == "/api/config":
             self.save_config(body)
+        elif self.path == "/api/schema/clarify":
+            self.save_clarify(body)
         else:
             self.send_json({"error": "Endpoint not found"}, 404)
 
-    # --- API ENDPOINTS LOGIC ---
+    def get_schema(self):
+        schema = check_and_heal_schema()
+        self.send_json(schema)
+
+    def save_clarify(self, body):
+        schema = load_schema()
+        field = body.get("field")
+        answer = body.get("answer")
+        
+        # Apply clarification logic (e.g. modify category or custom properties)
+        # Find column in schema and update based on user answers
+        for col in schema["columns"]:
+            if col["field"] == field:
+                if "deducción" in answer.lower():
+                    col["category"] = "deduction"
+                    col["incidence_editable"] = True
+                elif "percepción" in answer.lower():
+                    col["category"] = "others"
+                    col["editable"] = True
+                print(f"Applied clarification for {field}: categorized as {col['category']}")
+        
+        # Remove from pending list
+        schema["pending_clarifications"] = [q for q in schema["pending_clarifications"] if q["field"] != field]
+        save_schema(schema)
+        self.send_json({"success": True, "schema": schema})
 
     def get_employees(self):
         try:
+            schema = check_and_heal_schema()
             if not os.path.exists(EXCEL_PATH):
                 self.send_json({"error": f"Excel database file not found at {EXCEL_PATH}"}, 500)
                 return
 
-            # Open spreadsheet (data_only=True to get raw values, data_only=False to get formulas)
             wb_v = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
             wb_f = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
-            
             sheet_v = wb_v.active
             sheet_f = wb_f.active
 
-            # 1. Read global UMA
-            uma = sheet_v.cell(row=2, column=19).value # Cell S2
+            # Read dynamic UMA cell
+            uma_cell_coord = schema.get("uma_cell", "S3")
+            uma = sheet_v[uma_cell_coord].value
             try:
                 uma = float(str(uma).replace(",", "").strip()) if uma is not None else 117.31
             except:
                 uma = 117.31
 
-            # 2. Iterate and read employees starting from row 6
+            nombre_col = get_field_index(schema, "nombre")
+            id_col = get_field_index(schema, "id")
+            neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+
             employees = []
             row = 6
             while True:
-                # Check if row is empty or a total row
-                nombre_val = sheet_v.cell(row=row, column=4).value # Column D
-                cod_val = sheet_v.cell(row=row, column=2).value # Column B
+                nombre_val = sheet_v.cell(row=row, column=nombre_col).value
+                cod_val = sheet_v.cell(row=row, column=id_col).value
                 
-                # Stop if we hit a total row or empty row
                 if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
                     break
                 if nombre_val is None and cod_val is None:
-                    # Let's check next 3 rows to see if we reached end
                     has_more = False
                     for i in range(1, 4):
-                        n = sheet_v.cell(row=row+i, column=4).value
-                        c = sheet_v.cell(row=row+i, column=2).value
+                        n = sheet_v.cell(row=row+i, column=nombre_col).value
+                        c = sheet_v.cell(row=row+i, column=id_col).value
                         if n or c:
                             has_more = True
                     if not has_more:
                         break
                 
                 if nombre_val:
-                    # Extract date values
-                    ingreso = sheet_v.cell(row=row, column=9).value # Column I
-                    if isinstance(ingreso, datetime):
-                        ingreso_str = ingreso.strftime("%Y-%m-%d")
-                    else:
-                        ingreso_str = str(ingreso)[:10] if ingreso else ""
-                        
-                    baja = sheet_v.cell(row=row, column=11).value # Column K
-                    if isinstance(baja, datetime):
-                        baja_str = baja.strftime("%Y-%m-%d")
-                    else:
-                        baja_str = str(baja)[:10] if baja else None
-
-                    # Parse float helper
                     def val_to_float(cell_val):
-                        if cell_val is None:
-                            return 0.0
+                        if cell_val is None: return 0.0
                         v = str(cell_val).replace(",", "").strip()
-                        if v == "-" or v == "" or v == "None":
-                            return 0.0
-                        try:
-                            return float(v)
-                        except ValueError:
-                            return 0.0
+                        if v in ["-", "", "None"]: return 0.0
+                        try: return float(v)
+                        except ValueError: return 0.0
 
-                    # Parse incidences from AG formula
-                    formula_ag = sheet_f.cell(row=row, column=33).value # Column AG
+                    # Parse absences from dynamic formula in neto_quincenal column
                     faltas = 0
-                    if isinstance(formula_ag, str) and "/15*" in formula_ag:
-                        try:
-                            # Formula form: =AF{row}/2/15*worked_days
-                            parts = formula_ag.split("*")
-                            days_worked = int(parts[-1])
-                            faltas = 15 - days_worked
-                        except:
-                            pass
+                    if neto_quincenal_col:
+                        formula_ag = sheet_f.cell(row=row, column=neto_quincenal_col).value
+                        if isinstance(formula_ag, str) and "/15*" in formula_ag:
+                            try:
+                                parts = formula_ag.split("*")
+                                days_worked = int(parts[-1])
+                                faltas = 15 - days_worked
+                            except:
+                                pass
 
-                    # Clean code ID
                     cod_id = str(cod_val).strip() if cod_val is not None else f"TEMP_{row}"
 
+                    # Dynamically read all fields defined in schema
                     emp = {
                         "id": cod_id,
                         "_row": row,
-                        "no": str(sheet_v.cell(row=row, column=1).value or ""),
-                        "nombre": str(nombre_val).strip(),
-                        "empresa": str(sheet_v.cell(row=row, column=3).value or "").strip(),
-                        "area": str(sheet_v.cell(row=row, column=5).value or "").strip(),
-                        "depto": str(sheet_v.cell(row=row, column=6).value or "").strip(),
-                        "puesto": str(sheet_v.cell(row=row, column=7).value or "").strip(),
-                        "lugar": str(sheet_v.cell(row=row, column=8).value or "").strip(),
-                        "ingreso": ingreso_str,
-                        "baja": baja_str,
-                        "fondo_ahorro_activo": str(sheet_v.cell(row=row, column=12).value or "").upper() == "SI",
-                        
-                        # Payment settings
-                        "salario_diario": val_to_float(sheet_v.cell(row=row, column=13).value),
-                        "asimilados": val_to_float(sheet_v.cell(row=row, column=22).value),
-                        "gasolina": val_to_float(sheet_v.cell(row=row, column=23).value),
-                        "socio": val_to_float(sheet_v.cell(row=row, column=24).value),
-                        "efectivo": val_to_float(sheet_v.cell(row=row, column=25).value),
-                        "facturado": val_to_float(sheet_v.cell(row=row, column=26).value),
-                        "deuda_carro": val_to_float(sheet_v.cell(row=row, column=27).value),
-                        
-                        # Current period status (written in spreadsheet)
-                        "descuento_adicional": val_to_float(sheet_v.cell(row=row, column=31).value), # Column AE
-                        "observaciones": str(sheet_v.cell(row=row, column=34).value or "").strip(), # Column AH
                         "faltas": faltas,
                         "vacaciones": 0,
                         "retardos": 0
                     }
+                    for col in schema["columns"]:
+                        f = col["field"]
+                        t = col["type"]
+                        val = sheet_v.cell(row=row, column=col["index"]).value
+                        
+                        if f == "id":
+                            continue # Already handled
+                        elif t == "float":
+                            emp[f] = val_to_float(val)
+                        elif t == "date":
+                            if isinstance(val, datetime):
+                                emp[f] = val.strftime("%Y-%m-%d")
+                            else:
+                                emp[f] = str(val)[:10] if val else ""
+                        elif t == "boolean":
+                            emp[f] = str(val or "").upper() == "SI"
+                        else:
+                            emp[f] = str(val or "").strip()
+                            
                     employees.append(emp)
                 row += 1
 
             wb_v.close()
             wb_f.close()
             
-            # Send results
             self.send_json({
-                "period": "16 al 30 Abr 2026",
+                "period": schema.get("period", "16 al 30 Abr 2026"),
                 "uma": uma,
                 "employees": employees
             })
 
         except Exception as e:
-            import traceback
             tb = traceback.format_exc()
             print("Error get_employees:\n", tb)
             self.send_json({"error": f"Error reading Excel database: {e}", "details": tb}, 500)
 
     def save_collaborator(self, body):
         try:
+            schema = check_and_heal_schema()
             if not os.path.exists(EXCEL_PATH):
                 self.send_json({"error": "Excel database file not found"}, 500)
                 return
@@ -203,149 +413,139 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "Collaborator ID/Code is required"}, 400)
                 return
 
-            # Open with formulas
             wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
             ws = wb.active
 
-            # Find if collaborator exists
+            nombre_col = get_field_index(schema, "nombre")
+            id_col = get_field_index(schema, "id")
+
             row = 6
             found_row = None
             totals_row = None
             
+            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+            temp_row_resolved = None
+            if is_temp_id:
+                try:
+                    temp_row_resolved = int(cod.split("_")[1])
+                except ValueError:
+                    pass
+
             while True:
-                nombre_val = ws.cell(row=row, column=4).value # Column D
-                cod_val = ws.cell(row=row, column=2).value # Column B
+                nombre_val = ws.cell(row=row, column=nombre_col).value
+                cod_val = ws.cell(row=row, column=id_col).value
                 
-                # Check for totals row
                 if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
                     totals_row = row
                     break
                 if nombre_val is None and cod_val is None:
-                    # Let's check next 3 rows
                     has_more = False
                     for i in range(1, 4):
-                        n = ws.cell(row=row+i, column=4).value
-                        c = ws.cell(row=row+i, column=2).value
+                        n = ws.cell(row=row+i, column=nombre_col).value
+                        c = ws.cell(row=row+i, column=id_col).value
                         if n or c:
                             has_more = True
                     if not has_more:
                         totals_row = row
                         break
                 
-                if str(cod_val).strip() == str(cod).strip():
+                if temp_row_resolved == row:
+                    found_row = row
+                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
                     found_row = row
                     break
                 row += 1
 
-            # Determine Target Row
             if found_row:
                 target_row = found_row
                 print(f"Updating collaborator {cod} at row {target_row}")
             else:
-                # Add new row: insert a row at totals_row
                 target_row = totals_row
                 ws.insert_rows(target_row, amount=1)
                 print(f"Adding new collaborator {cod} at inserted row {target_row}")
 
-            # Write values into target row
-            ws.cell(row=target_row, column=1).value = body.get("no", "")
-            ws.cell(row=target_row, column=2).value = cod
-            ws.cell(row=target_row, column=3).value = body.get("empresa", "")
-            ws.cell(row=target_row, column=4).value = body.get("nombre", "")
-            ws.cell(row=target_row, column=5).value = body.get("area", "")
-            ws.cell(row=target_row, column=6).value = body.get("depto", "")
-            ws.cell(row=target_row, column=7).value = body.get("puesto", "")
-            ws.cell(row=target_row, column=8).value = body.get("lugar", "")
-            
-            # Dates
-            ingreso_str = body.get("ingreso", "")
-            if ingreso_str:
-                ws.cell(row=target_row, column=9).value = datetime.strptime(ingreso_str, "%Y-%m-%d")
-            else:
-                ws.cell(row=target_row, column=9).value = None
+            # Write values dynamically based on schema config
+            for col in schema["columns"]:
+                f = col["field"]
+                if not col.get("editable", True):
+                    continue
+                t = col["type"]
+                val = body.get(f)
                 
-            baja_str = body.get("baja")
-            if baja_str:
-                ws.cell(row=target_row, column=11).value = datetime.strptime(baja_str, "%Y-%m-%d")
-            else:
-                ws.cell(row=target_row, column=11).value = None
-
-            ws.cell(row=target_row, column=12).value = "SI" if body.get("fondo_ahorro_activo") else "NO"
-            
-            # Payment amounts
-            salario_diario = float(body.get("salario_diario", 0.0))
-            ws.cell(row=target_row, column=13).value = salario_diario if salario_diario > 0 else None
-            ws.cell(row=target_row, column=22).value = float(body.get("asimilados", 0.0)) or None
-            ws.cell(row=target_row, column=23).value = float(body.get("gasolina", 0.0)) or None
-            ws.cell(row=target_row, column=24).value = float(body.get("socio", 0.0)) or None
-            ws.cell(row=target_row, column=25).value = float(body.get("efectivo", 0.0)) or None
-            ws.cell(row=target_row, column=26).value = float(body.get("facturado", 0.0)) or None
-            ws.cell(row=target_row, column=27).value = float(body.get("deuda_carro", 0.0)) or None
+                cell_ref = ws.cell(row=target_row, column=col["index"])
+                if f == "id":
+                    cell_ref.value = None if is_temp_id else val
+                elif t == "float":
+                    v_float = float(val) if val is not None and str(val).strip() != "" else 0.0
+                    cell_ref.value = v_float if v_float > 0 else None
+                elif t == "date":
+                    cell_ref.value = datetime.strptime(val, "%Y-%m-%d") if val else None
+                elif t == "boolean":
+                    cell_ref.value = "SI" if val else "NO"
+                else:
+                    cell_ref.value = str(val).strip() if val else None
 
             # Calculate Factor de Integracion based on current date vs ingreso date
-            if ingreso_str and not baja_str:
-                try:
-                    ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
-                    active_dt = datetime(2026, 4, 30) # Anchor year 2026
-                    diff_yrs = (active_dt - ingreso_dt).days / 365.25
-                    years = max(1, int(diff_yrs))
-                    
-                    # Mexican Vacations LFT standard
-                    def get_vac_days(y):
-                        if y <= 1: return 12
-                        if y == 2: return 14
-                        if y == 3: return 16
-                        if y == 4: return 18
-                        if y == 5: return 20
-                        if y <= 10: return 22
-                        if y <= 15: return 24
-                        if y <= 20: return 26
-                        return 28
+            ingreso_str = body.get("ingreso", "")
+            baja_str = body.get("baja", "")
+            fi_col = get_field_index(schema, "factor_integracion")
+            
+            if fi_col:
+                if ingreso_str and not baja_str:
+                    try:
+                        ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
+                        active_dt = datetime(2026, 4, 30)
+                        diff_yrs = (active_dt - ingreso_dt).days / 365.25
+                        years = max(1, int(diff_yrs))
                         
-                    vac = get_vac_days(years)
-                    fi = 1 + (15/365) + ((vac * 0.25) / 365)
-                    ws.cell(row=target_row, column=14).value = round(fi, 4)
-                except Exception as ex:
-                    print(f"Error calculating Factor Integration: {ex}")
-                    ws.cell(row=target_row, column=14).value = 1.0493
-            else:
-                ws.cell(row=target_row, column=14).value = 0.0
+                        def get_vac_days(y):
+                            if y <= 1: return 12
+                            if y == 2: return 14
+                            if y == 3: return 16
+                            if y == 4: return 18
+                            if y == 5: return 20
+                            if y <= 10: return 22
+                            if y <= 15: return 24
+                            if y <= 20: return 26
+                            return 28
+                            
+                        vac = get_vac_days(years)
+                        fi = 1 + (15/365) + ((vac * 0.25) / 365)
+                        ws.cell(row=target_row, column=fi_col).value = round(fi, 4)
+                    except Exception as ex:
+                        print(f"Error calculating Factor Integration: {ex}")
+                        ws.cell(row=target_row, column=fi_col).value = 1.0493
+                else:
+                    ws.cell(row=target_row, column=fi_col).value = 0.0
 
-            # Inject all nominal calculations formulas
-            ws.cell(row=target_row, column=15).value = f"=M{target_row}*N{target_row}"
-            ws.cell(row=target_row, column=16).value = f"=M{target_row}*30.4"
-            ws.cell(row=target_row, column=17).value = f"=O{target_row}*0.1*30.4"
-            ws.cell(row=target_row, column=18).value = f"=O{target_row}*0.1*30.4"
-            ws.cell(row=target_row, column=19).value = f"=$S$2*0.4*30.4" # Vales exentos
-            ws.cell(row=target_row, column=20).value = f'=IF(L{target_row}="SI",P{target_row}*0.11,0)'
-            ws.cell(row=target_row, column=21).value = f"=SUM(P{target_row}:T{target_row})"
-            ws.cell(row=target_row, column=28).value = f"=SUM(U{target_row}:AA{target_row})"
-            ws.cell(row=target_row, column=29).value = f"=AB{target_row}/2"
-            
-            # Control columns
-            ws.cell(row=target_row, column=30).value = 0
-            # Descuento
-            if not found_row:
-                ws.cell(row=target_row, column=31).value = 0.0
-                ws.cell(row=target_row, column=34).value = "NUEVO INGRESO"
-            
-            ws.cell(row=target_row, column=32).value = f"=AB{target_row}-AE{target_row}"
-            ws.cell(row=target_row, column=33).value = f"=AF{target_row}/2"
-            ws.cell(row=target_row, column=36).value = f"=AC{target_row}-AG{target_row}"
+            # Inject all calculations formulas dynamically
+            inject_formulas_dynamically(ws, target_row, schema)
 
-            # 6. If we inserted a new row, we MUST update the Totals Row sum ranges
+            # Normal neto_quincenal (since no absences on initial creation/edit unless previously set)
+            neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+            bruto_mensual_neto_letter = get_field_letter(schema, "bruto_mensual_neto")
+            if neto_quincenal_col:
+                ws.cell(row=target_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{target_row}/2"
+
+            # 6. Re-sum totals in Row 21 or new totals row
             new_totals_row = totals_row + 1 if not found_row else totals_row
-            if not found_row:
-                columns_to_sum = [
-                    (21, "U"), (22, "V"), (23, "W"), (24, "X"), (25, "Y"), (26, "Z"), (27, "AA"), 
-                    (28, "AB"), (31, "AE"), (32, "AF"), (36, "AJ")
-                ]
-                for col_idx, letter in columns_to_sum:
+            columns_to_sum = [
+                "percepcion_sueldos", "asimilados", "gasolina", "socio", "efectivo", "facturado", 
+                "deuda_carro", "bruto_mensual", "descuento_adicional", "bruto_mensual_neto", "descuento_quincenal_acumulado"
+            ]
+            for field in columns_to_sum:
+                col_idx = get_field_index(schema, field)
+                letter = get_field_letter(schema, field)
+                if col_idx and letter:
                     ws.cell(row=new_totals_row, column=col_idx).value = f"=SUM({letter}6:{letter}{new_totals_row-1})"
-                
-                # AC and AG sum
-                ws.cell(row=new_totals_row, column=29).value = f"=AF{new_totals_row}/2"
-                ws.cell(row=new_totals_row, column=33).value = f"=SUM(AG6:AG{new_totals_row-1})"
+            
+            # AC and AG sum
+            bruto_quincenal_col = get_field_index(schema, "bruto_quincenal")
+            if bruto_quincenal_col:
+                ws.cell(row=new_totals_row, column=bruto_quincenal_col).value = f"=AF{new_totals_row}/2"
+            if neto_quincenal_col:
+                neto_quincenal_letter = get_field_letter(schema, "neto_quincenal")
+                ws.cell(row=new_totals_row, column=neto_quincenal_col).value = f"=SUM({neto_quincenal_letter}6:{neto_quincenal_letter}{new_totals_row-1})"
 
             # Save file
             wb.save(EXCEL_PATH)
@@ -356,11 +556,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         except PermissionError:
             self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
-            import traceback
             self.send_json({"error": f"Error saving collaborator: {e}", "details": traceback.format_exc()}, 500)
 
     def save_incidences(self, body):
         try:
+            schema = check_and_heal_schema()
             if not os.path.exists(EXCEL_PATH):
                 self.send_json({"error": "Excel database file not found"}, 500)
                 return
@@ -373,18 +573,31 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
             ws = wb.active
 
-            # Find collaborator row
+            nombre_col = get_field_index(schema, "nombre")
+            id_col = get_field_index(schema, "id")
+
             row = 6
             found_row = None
+            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+            temp_row_resolved = None
+            if is_temp_id:
+                try:
+                    temp_row_resolved = int(cod.split("_")[1])
+                except ValueError:
+                    pass
+
             while True:
-                nombre_val = ws.cell(row=row, column=4).value
-                cod_val = ws.cell(row=row, column=2).value
+                nombre_val = ws.cell(row=row, column=nombre_col).value
+                cod_val = ws.cell(row=row, column=id_col).value
                 
                 if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
                     break
                 if nombre_val is None and cod_val is None:
                     break
-                if str(cod_val).strip() == str(cod).strip():
+                if temp_row_resolved == row:
+                    found_row = row
+                    break
+                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
                     found_row = row
                     break
                 row += 1
@@ -394,23 +607,27 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 wb.close()
                 return
 
-            # Apply incidences
+            # Apply incidences dynamically
             faltas = int(body.get("faltas", 0))
             descuento_adicional = float(body.get("descuento_adicional", 0.0))
             observaciones = body.get("observaciones", "")
 
-            # AE (Deducción adicional / Préstamo)
-            ws.cell(row=found_row, column=31).value = descuento_adicional if descuento_adicional > 0 else None
-            # AH (Observaciones)
-            ws.cell(row=found_row, column=34).value = observaciones if observaciones else None
+            descuento_col = get_field_index(schema, "descuento_adicional")
+            observaciones_col = get_field_index(schema, "observaciones")
+            neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+            bruto_mensual_neto_letter = get_field_letter(schema, "bruto_mensual_neto")
 
-            # AG (Sueldo Neto Quincenal)
-            # If they have absences, we apply the proportional discount formula
-            if faltas > 0:
-                dias_laborados = 15 - faltas
-                ws.cell(row=found_row, column=33).value = f"=AF{found_row}/2/15*{dias_laborados}"
-            else:
-                ws.cell(row=found_row, column=33).value = f"=AF{found_row}/2"
+            if descuento_col:
+                ws.cell(row=found_row, column=descuento_col).value = descuento_adicional if descuento_adicional > 0 else None
+            if observaciones_col:
+                ws.cell(row=found_row, column=observaciones_col).value = observaciones if observaciones else None
+
+            if neto_quincenal_col:
+                if faltas > 0:
+                    dias_laborados = 15 - faltas
+                    ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2/15*{dias_laborados}"
+                else:
+                    ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2"
 
             # Save file
             wb.save(EXCEL_PATH)
@@ -421,7 +638,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         except PermissionError:
             self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
-            import traceback
             self.send_json({"error": f"Error saving incidences: {e}", "details": traceback.format_exc()}, 500)
 
     def save_config(self, body):
@@ -431,14 +647,19 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             uma = float(body.get("uma", 117.31))
+            api_key = body.get("gemini_api_key", "")
+
+            schema = load_schema()
+            schema["gemini_api_key"] = api_key
+            save_schema(schema)
 
             wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
             ws = wb.active
 
-            # Write UMA in S2 (Column 19, Row 2)
-            ws.cell(row=2, column=19).value = uma
+            # Write UMA in S3 (Column 19, Row 3)
+            uma_cell = schema.get("uma_cell", "S3")
+            ws[uma_cell].value = uma
 
-            # Save file
             wb.save(EXCEL_PATH)
             wb.close()
 

@@ -1,4 +1,4 @@
-// RHM CRM & Prenómina App Logic (Excel-Connected Edition)
+// RHM CRM & Prenómina App Logic (Dynamic AI-Connected Edition)
 document.addEventListener("DOMContentLoaded", () => {
   
   // 1. Initial State & Configuration
@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let state = {
     employees: [],
+    schema: null,
     config: { ...DEFAULT_CONFIG },
     activeTab: "dashboard",
     selectedIncidenceEmployeeId: null,
@@ -28,7 +29,30 @@ document.addEventListener("DOMContentLoaded", () => {
       if (window.lucide) lucide.createIcons();
     }
 
-    fetch("/api/employees")
+    // Fetch dynamic schema configuration first
+    fetch("/api/schema")
+      .then(res => {
+        if (!res.ok) throw new Error("Error cargando esquema");
+        return res.json();
+      })
+      .then(schemaData => {
+        state.schema = schemaData;
+        
+        // Populate Gemini API Key field
+        const keyInput = document.getElementById("cfg-gemini-key");
+        if (keyInput) {
+          keyInput.value = schemaData.gemini_api_key || "";
+        }
+
+        // Show clarifications banner if pending
+        renderClarificationBanner();
+
+        // Populate dynamic inputs in collaborator and incidences forms
+        generateDynamicInputs();
+
+        // Now load employees
+        return fetch("/api/employees");
+      })
       .then(res => {
         if (!res.ok) throw new Error("Error de respuesta del servidor");
         return res.json();
@@ -43,13 +67,11 @@ document.addEventListener("DOMContentLoaded", () => {
           dbIndicator.innerHTML = '<i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado';
         }
         
-        // Update HTML period indicator
         const periodInd = document.getElementById("period-indicator");
         if (periodInd) {
           periodInd.textContent = `Periodo Activo: ${state.period}`;
         }
 
-        // Render all views
         renderActiveView();
         if (window.lucide) lucide.createIcons();
       })
@@ -64,7 +86,99 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // 3. Payroll Math Calculations (Front-end Preview Engine)
+  // 3. Dynamic input field generation
+  function generateDynamicInputs() {
+    // 1. Collaborator form dynamic payments
+    const container = document.getElementById("collaborator-dynamic-fields");
+    if (container && state.schema && state.schema.columns) {
+      container.innerHTML = "";
+      const otherCols = state.schema.columns.filter(col => col.category === "others" && col.editable);
+      otherCols.forEach(col => {
+        container.innerHTML += `
+          <div class="form-group">
+            <label for="col-${col.field}">${col.label}</label>
+            <input type="number" id="col-${col.field}" min="0" step="0.01" value="0.0">
+          </div>
+        `;
+      });
+    }
+
+    // 2. Dynamic incidences deductions
+    const incContainer = document.getElementById("incidences-dynamic-fields");
+    if (incContainer && state.schema && state.schema.columns) {
+      incContainer.innerHTML = "";
+      const deductions = state.schema.columns.filter(col => col.category === "deduction" && col.incidence_editable);
+      deductions.forEach(col => {
+        incContainer.innerHTML += `
+          <div class="form-group">
+            <label for="inc-${col.field}">${col.label}</label>
+            <input type="number" id="inc-${col.field}" min="0" value="0" step="0.01" placeholder="Ej. Préstamo">
+          </div>
+        `;
+      });
+    }
+  }
+
+  // 4. Render Agent Clarifications Banner
+  function renderClarificationBanner() {
+    const banner = document.getElementById("schema-clarification-banner");
+    const list = document.getElementById("clarification-questions-list");
+    if (!banner || !list) return;
+
+    const questions = state.schema.pending_clarifications || [];
+    if (questions.length === 0) {
+      banner.style.display = "none";
+      return;
+    }
+
+    banner.style.display = "block";
+    list.innerHTML = "";
+
+    questions.forEach(q => {
+      list.innerHTML += `
+        <div class="clarify-card" style="background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-top: 0.5rem;">
+          <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">${q.question}</h4>
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+            ${q.options.map(opt => `
+              <button type="button" class="btn btn-secondary btn-sm clarify-opt-btn" data-field="${q.field}" data-answer="${opt}">${opt}</button>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    });
+
+    // Attach click events
+    document.querySelectorAll(".clarify-opt-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const field = btn.getAttribute("data-field");
+        const answer = btn.getAttribute("data-answer");
+        submitClarification(field, answer);
+      });
+    });
+  }
+
+  function submitClarification(field, answer) {
+    fetch("/api/schema/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field, answer })
+    })
+      .then(res => res.json())
+      .then(resData => {
+        if (resData.error) {
+          showToast(resData.error, "error");
+          return;
+        }
+        showToast("Aclaración guardada con éxito. Reconfigurando esquema.");
+        loadState();
+      })
+      .catch(err => {
+        console.error("Error submitting clarification:", err);
+        showToast("Error al guardar respuesta en el Agente.", "error");
+      });
+  }
+
+  // 5. Payroll Math Calculations (Front-end Preview Engine)
   function getVacationDays(years) {
     if (years <= 0) return 12;
     if (years === 1) return 12;
@@ -87,13 +201,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function calculateEmployeePayroll(emp, cfg) {
-    const activeDate = new Date("2026-04-30"); // Base target date of the sheet
+    const activeDate = new Date("2026-04-30"); // Base target date
     const ingresoDate = new Date(emp.ingreso);
     const diffTime = Math.abs(activeDate - ingresoDate);
     const yearsOfLabores = diffTime / (1000 * 60 * 60 * 24 * 365.25);
     const yearsCompleted = Math.max(1, Math.floor(yearsOfLabores));
     
-    // Check if employee is in baja
     const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
     
     // Factor de Integración
@@ -109,24 +222,32 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const percepcionSueldos = sueldoNominal + puntualidad + asistencia + valesDespensa + fondoAhorro;
     
-    // Other schemas components
-    const asimilados = !isBaja ? (emp.asimilados || 0) : 0;
-    const gasolina = !isBaja ? (emp.gasolina || 0) : 0;
-    const socio = !isBaja ? (emp.socio || 0) : 0;
-    const efectivo = !isBaja ? (emp.efectivo || 0) : 0;
-    const facturado = !isBaja ? (emp.facturado || 0) : 0;
-    const deudaCarro = !isBaja ? (emp.deuda_carro || 0) : 0;
-    
-    const totalOtros = asimilados + gasolina + socio + efectivo + facturado + deudaCarro;
+    // Dynamic Other payment components sum
+    let totalOtros = 0;
+    if (state.schema && state.schema.columns) {
+      const otherCols = state.schema.columns.filter(c => c.category === "others");
+      otherCols.forEach(col => {
+        const val = !isBaja ? (emp[col.field] || 0.0) : 0.0;
+        totalOtros += val;
+      });
+    }
     
     const sueldoBrutoMensual = percepcionSueldos + totalOtros;
     const sueldoBrutoQuincenalNormal = sueldoBrutoMensual / 2;
     
-    // Incidences impact (Descuento por faltas)
-    // Formula: Sueldo Bruto Quincenal Normal / 15 * faltas
+    // Absences deduction impact
     const faltas = emp.faltas || 0;
     const descuentoFaltas = (sueldoBrutoQuincenalNormal / 15) * faltas;
-    const descuentoAdicional = emp.descuento_adicional || 0;
+    
+    // Dynamic Additional Deductions sum
+    let descuentoAdicional = 0;
+    if (state.schema && state.schema.columns) {
+      const deductionCols = state.schema.columns.filter(c => c.category === "deduction");
+      deductionCols.forEach(col => {
+        const val = !isBaja ? (emp[col.field] || 0.0) : 0.0;
+        descuentoAdicional += val;
+      });
+    }
     
     // Final Net Quincenal
     const sueldoNetoQuincenal = Math.max(0, sueldoBrutoQuincenalNormal - descuentoFaltas - descuentoAdicional);
@@ -151,7 +272,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // 4. Tab Navigation LFT
+  // 6. Tab Navigation
   const navItems = document.querySelectorAll(".nav-item");
   const viewSections = document.querySelectorAll(".view-section");
 
@@ -165,7 +286,6 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById(target).classList.add("active");
       state.activeTab = target;
       
-      // Refresh targeted view
       renderActiveView();
     });
   });
@@ -190,7 +310,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 5. Toast Notifications Helper
+  // 7. Toast Notifications
   function showToast(message, type = "success") {
     const toast = document.getElementById("toast-notify");
     const toastMessage = document.getElementById("toast-message");
@@ -210,7 +330,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 3500);
   }
 
-  // 6. View Rendering - DASHBOARD
+  // 8. View Rendering - DASHBOARD
   function renderDashboard() {
     let activeCount = 0;
     let totalPayroll = 0;
@@ -243,31 +363,17 @@ document.addEventListener("DOMContentLoaded", () => {
         totalDiscountedDays += emp.faltas || 0;
         totalFA += calc.fondoAhorro;
         
-        // Scheme tallies
         if (emp.salario_diario > 0) {
           schemeCounts.nominal++;
           schemeTotals.nominal += calc.sueldoNominal;
         }
-        if (emp.asimilados > 0) {
-          schemeCounts.asimilados++;
-          schemeTotals.asimilados += emp.asimilados;
-        }
-        if (emp.gasolina > 0) {
-          schemeCounts.gasolina++;
-          schemeTotals.gasolina += emp.gasolina;
-        }
-        if (emp.socio > 0) {
-          schemeCounts.socio++;
-          schemeTotals.socio += emp.socio;
-        }
-        if (emp.efectivo > 0) {
-          schemeCounts.efectivo++;
-          schemeTotals.efectivo += emp.efectivo;
-        }
-        if (emp.facturado > 0) {
-          schemeCounts.facturado++;
-          schemeTotals.facturado += emp.facturado;
-        }
+        
+        // Add dynamic payments count
+        if (emp.asimilados > 0) { schemeCounts.asimilados++; schemeTotals.asimilados += emp.asimilados; }
+        if (emp.gasolina > 0) { schemeCounts.gasolina++; schemeTotals.gasolina += emp.gasolina; }
+        if (emp.socio > 0) { schemeCounts.socio++; schemeTotals.socio += emp.socio; }
+        if (emp.efectivo > 0) { schemeCounts.efectivo++; schemeTotals.efectivo += emp.efectivo; }
+        if (emp.facturado > 0) { schemeCounts.facturado++; schemeTotals.facturado += emp.facturado; }
       }
     });
 
@@ -276,7 +382,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("stat-discounted-days").textContent = `${totalDiscountedDays} día${totalDiscountedDays !== 1 ? 's' : ''}`;
     document.getElementById("stat-savings-fund").textContent = formatCurrency(totalFA);
 
-    // Render distribution table
     const distBody = document.getElementById("distribution-table-body");
     distBody.innerHTML = "";
     
@@ -309,7 +414,6 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    // Render recent incidences
     const incidencesList = document.getElementById("recent-incidences-list");
     incidencesList.innerHTML = "";
     
@@ -345,7 +449,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.lucide) lucide.createIcons();
   }
 
-  // 7. View Rendering - COLLABORATORS (CRM)
+  // 9. View Rendering - COLLABORATORS (CRM)
   const collSearch = document.getElementById("coll-search");
   const filterEmpresa = document.getElementById("filter-empresa");
   const filterArea = document.getElementById("filter-area");
@@ -363,7 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const query = collSearch.value.toLowerCase().trim();
     const empresa = filterEmpresa.value;
     const area = filterArea.value;
-    const status = filterStatus.value; // 'alta', 'baja', 'todos'
+    const status = filterStatus.value;
 
     const filtered = state.employees.filter(emp => {
       const matchSearch = emp.nombre.toLowerCase().includes(query) || 
@@ -396,17 +500,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const activeDate = new Date("2026-04-30");
       const diffTime = Math.abs(activeDate - new Date(emp.ingreso));
       const years = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-      
       const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
       
       let schemes = [];
       if (emp.salario_diario > 0) schemes.push("Nominal IMSS");
-      if (emp.asimilados > 0) schemes.push("Asimilados");
-      if (emp.gasolina > 0) schemes.push("Gasolina");
-      if (emp.socio > 0) schemes.push("Socio");
-      if (emp.efectivo > 0) schemes.push("Efectivo");
-      if (emp.facturado > 0) schemes.push("Facturado");
-      if (emp.deuda_carro > 0) schemes.push("Carro");
+      
+      // Dynamic payment display list
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "others" && emp[col.field] > 0) {
+            schemes.push(col.label.split("(")[0].trim());
+          }
+        });
+      }
       
       const initials = emp.nombre.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase();
 
@@ -452,25 +558,22 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    // Attach actions
     document.querySelectorAll(".edit-coll-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-id");
-        openCollaboratorModal(id);
+        openCollaboratorModal(btn.getAttribute("data-id"));
       });
     });
 
     document.querySelectorAll(".toggle-status-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-id");
-        toggleCollaboratorStatus(id);
+        toggleCollaboratorStatus(btn.getAttribute("data-id"));
       });
     });
 
     if (window.lucide) lucide.createIcons();
   }
 
-  // 8. View Rendering - INCIDENCES
+  // 10. View Rendering - INCIDENCES
   const incSearchColl = document.getElementById("inc-search-coll");
   if (incSearchColl) {
     incSearchColl.addEventListener("input", renderIncidencesCollList);
@@ -478,8 +581,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderIncidences() {
     renderIncidencesCollList();
-    
-    // Select first employee in list if none selected
     const activeEmployees = state.employees.filter(e => !(e.baja));
     if (activeEmployees.length > 0 && !state.selectedIncidenceEmployeeId) {
       selectIncidenceEmployee(activeEmployees[0].id);
@@ -494,7 +595,6 @@ document.addEventListener("DOMContentLoaded", () => {
     listDiv.innerHTML = "";
     
     const query = incSearchColl.value.toLowerCase().trim();
-    
     const filtered = state.employees.filter(emp => {
       const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
       return !isBaja && (emp.nombre.toLowerCase().includes(query) || emp.id.toLowerCase().includes(query));
@@ -502,10 +602,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     filtered.forEach(emp => {
       const activeClass = state.selectedIncidenceEmployeeId === emp.id ? "active" : "";
-      let statusDot = "";
-      if (emp.faltas > 0 || emp.descuento_adicional > 0) {
-        statusDot = `<span class="badge warning" style="float:right; font-size:0.6rem; padding:0.15rem 0.35rem;">Incidencias</span>`;
+      
+      // Calculate dynamic deductions flag
+      let hasIncidences = emp.faltas > 0;
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.filter(c => c.category === "deduction").forEach(c => {
+          if (emp[c.field] > 0) hasIncidences = true;
+        });
       }
+      
+      const statusDot = hasIncidences ? `<span class="badge warning" style="float:right; font-size:0.6rem; padding:0.15rem 0.35rem;">Incidencias</span>` : "";
       
       listDiv.innerHTML += `
         <div class="list-item-coll ${activeClass}" data-id="${emp.id}">
@@ -516,11 +622,9 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    // Add click listeners
     document.querySelectorAll(".list-item-coll").forEach(item => {
       item.addEventListener("click", () => {
-        const id = item.getAttribute("data-id");
-        selectIncidenceEmployee(id);
+        selectIncidenceEmployee(item.getAttribute("data-id"));
       });
     });
   }
@@ -539,19 +643,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const emp = state.employees.find(e => e.id === id);
     if (!emp) return;
 
-    // Show form
     document.getElementById("inc-form-container").style.display = "block";
     document.getElementById("inc-coll-name").textContent = `Incidencias: ${emp.nombre}`;
     
-    // Populate form values
     document.getElementById("inc-faltas").value = emp.faltas || 0;
     document.getElementById("inc-retardos").value = emp.retardos || 0;
     document.getElementById("inc-vacaciones").value = emp.vacaciones || 0;
-    document.getElementById("inc-descuento-adicional").value = emp.descuento_adicional || 0;
     document.getElementById("inc-observaciones").value = emp.observaciones || "";
+
+    // Fill dynamic deduction values
+    if (state.schema && state.schema.columns) {
+      state.schema.columns.forEach(col => {
+        if (col.category === "deduction" && col.incidence_editable) {
+          const el = document.getElementById(`inc-${col.field}`);
+          if (el) {
+            el.value = emp[col.field] || 0.0;
+          }
+        }
+      });
+    }
   }
 
-  // Handle Incidence form submit (Connected POST)
   const formIncidence = document.getElementById("form-capture-incidence");
   if (formIncidence) {
     formIncidence.addEventListener("submit", (e) => {
@@ -559,20 +671,31 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!state.selectedIncidenceEmployeeId) return;
 
       const faltas = parseInt(document.getElementById("inc-faltas").value) || 0;
-      const retardos = parseInt(document.getElementById("inc-retardos").value) || 0;
-      const vacaciones = parseInt(document.getElementById("inc-vacaciones").value) || 0;
-      const descuento_adicional = parseFloat(document.getElementById("inc-descuento-adicional").value) || 0.0;
       const observaciones = document.getElementById("inc-observaciones").value.trim();
+
+      const payload = {
+        id: state.selectedIncidenceEmployeeId,
+        faltas,
+        observaciones
+      };
+
+      // Gather dynamic deductions
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "deduction" && col.incidence_editable) {
+            const el = document.getElementById(`inc-${col.field}`);
+            payload[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
+          }
+        });
+      }
+
+      // Backward compatibility mapping for main descuento
+      payload.descuento_adicional = payload.descuento_adicional || 0.0;
 
       fetch("/api/incidences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: state.selectedIncidenceEmployeeId,
-          faltas,
-          descuento_adicional,
-          observaciones
-        })
+        body: JSON.stringify(payload)
       })
         .then(res => res.json())
         .then(resData => {
@@ -581,7 +704,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
           }
           showToast("Incidencias guardadas en Excel con éxito.");
-          loadState(); // Reload and redraw
+          loadState();
         })
         .catch(err => {
           console.error("Error guardando incidencias:", err);
@@ -590,27 +713,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 9. View Rendering - PRE-PAYROLL (EXCEL SHEET VIEW)
+  // 11. View Rendering - PRE-PAYROLL (DYNAMIC EXCEL SHEET VIEW)
   function renderPrenomina() {
     const tbody = document.getElementById("prenomina-table-body");
-    if (!tbody) return;
+    if (!tbody || !state.schema) return;
     tbody.innerHTML = "";
 
+    const cols = state.schema.columns;
+    
+    // Filter columns for grouped header matching
+    const nominalCols = cols.filter(c => c.index >= 13 && c.index <= 21);
+    const otherCols = cols.filter(c => c.category === "others");
+
+    // Dynamic colspan update in main layout header
+    const mainNominalHeader = document.getElementById("header-nominal-colspan");
+    if (mainNominalHeader) mainNominalHeader.colSpan = nominalCols.length;
+    
+    const mainOthersHeader = document.getElementById("header-otros-colspan");
+    if (mainOthersHeader) mainOthersHeader.colSpan = otherCols.length + 1; // including calculated Total Otros column
+
+    // Redraw subheaders row dynamically
+    const subheaderRow = document.getElementById("prenomina-subheaders-row");
+    if (subheaderRow) {
+      subheaderRow.innerHTML = "";
+      nominalCols.forEach(c => { subheaderRow.innerHTML += `<th>${c.header || c.label}</th>`; });
+      otherCols.forEach(c => { subheaderRow.innerHTML += `<th>${c.header || c.label}</th>`; });
+      subheaderRow.innerHTML += `<th>Total Otros</th>`;
+    }
+
     const totals = {
-      salarioDiario: 0,
-      sdi: 0,
       sueldoNominal: 0,
-      puntualidad: 0,
-      asistencia: 0,
-      valesDespensa: 0,
-      fondoAhorro: 0,
       percepcionSueldos: 0,
-      asimilados: 0,
-      gasolina: 0,
-      socio: 0,
-      efectivo: 0,
-      facturado: 0,
-      deudaCarro: 0,
       totalOtros: 0,
       brutoMensual: 0,
       brutoQuincenal: 0,
@@ -619,70 +752,71 @@ document.addEventListener("DOMContentLoaded", () => {
       netoQuincenal: 0
     };
 
+    // Initialize all dynamic totals
+    nominalCols.forEach(c => totals[c.field] = 0);
+    otherCols.forEach(c => totals[c.field] = 0);
+
     let idx = 1;
     state.employees.forEach(emp => {
       const calc = calculateEmployeePayroll(emp, state.config);
       
       if (!calc.isBaja) {
-        totals.salarioDiario += emp.salario_diario || 0;
-        totals.sdi += calc.sdi;
-        totals.sueldoNominal += calc.sueldoNominal;
-        totals.puntualidad += calc.puntualidad;
-        totals.asistencia += calc.asistencia;
-        totals.valesDespensa += calc.valesDespensa;
-        totals.fondoAhorro += calc.fondoAhorro;
         totals.percepcionSueldos += calc.percepcionSueldos;
-        totals.asimilados += emp.asimilados || 0;
-        totals.gasolina += emp.gasolina || 0;
-        totals.socio += emp.socio || 0;
-        totals.efectivo += emp.efectivo || 0;
-        totals.facturado += emp.facturado || 0;
-        totals.deudaCarro += emp.deuda_carro || 0;
         totals.totalOtros += calc.totalOtros;
         totals.brutoMensual += calc.sueldoBrutoMensual;
         totals.brutoQuincenal += calc.sueldoBrutoQuincenalNormal;
         totals.descuentoFaltas += calc.descuentoFaltas;
         totals.descuentoAdicional += calc.descuentoAdicional;
         totals.netoQuincenal += calc.sueldoNetoQuincenal;
+
+        nominalCols.forEach(c => {
+          const val = calc[c.field] !== undefined ? calc[c.field] : emp[c.field];
+          totals[c.field] += val || 0;
+        });
+
+        otherCols.forEach(c => {
+          totals[c.field] += emp[c.field] || 0;
+        });
       }
 
       const rowClass = calc.isBaja ? 'style="opacity: 0.4;"' : '';
       const faLabel = calc.isBaja ? '-' : (emp.fondo_ahorro_activo ? 'SI' : 'NO');
       
-      tbody.innerHTML += `
+      let rowHtml = `
         <tr ${rowClass}>
           <td class="align-center">${calc.isBaja ? '-' : idx}</td>
           <td class="align-center" style="font-family:monospace; font-weight:600;">${emp.id}</td>
-          <td class="align-center">${emp.empresa}</td>
+          <td class="align-center">${emp.empresa || '-'}</td>
           <td class="align-left" style="font-weight: 500;">
-            ${emp.nombre}
+            ${emp.nombre || '-'}
             ${calc.isBaja ? '<span class="badge danger" style="font-size:0.55rem; padding:0.05rem 0.25rem; margin-left:0.25rem;">Baja</span>' : ''}
           </td>
-          <td class="align-center">${emp.ingreso}</td>
+          <td class="align-center">${emp.ingreso || '-'}</td>
           <td class="align-center">${calc.antiguedad.toFixed(1)}</td>
           <td class="align-center">${faLabel}</td>
-          
-          <!-- Nominal IMSS -->
-          <td>${emp.salario_diario > 0 ? formatNumber(emp.salario_diario) : '-'}</td>
-          <td>${calc.factorIntegracion > 0 ? calc.factorIntegracion.toFixed(4) : '-'}</td>
-          <td>${calc.sdi > 0 ? formatNumber(calc.sdi) : '-'}</td>
-          <td>${calc.sueldoNominal > 0 ? formatNumber(calc.sueldoNominal) : '-'}</td>
-          <td>${calc.puntualidad > 0 ? formatNumber(calc.puntualidad) : '-'}</td>
-          <td>${calc.asistencia > 0 ? formatNumber(calc.asistencia) : '-'}</td>
-          <td>${calc.valesDespensa > 0 ? formatNumber(calc.valesDespensa) : '-'}</td>
-          <td>${calc.fondoAhorro > 0 ? formatNumber(calc.fondoAhorro) : '-'}</td>
-          <td style="font-weight: 600;">${calc.percepcionSueldos > 0 ? formatNumber(calc.percepcionSueldos) : '-'}</td>
-          
-          <!-- Otros Conceptos -->
-          <td>${emp.asimilados > 0 ? formatNumber(emp.asimilados) : '-'}</td>
-          <td>${emp.gasolina > 0 ? formatNumber(emp.gasolina) : '-'}</td>
-          <td>${emp.socio > 0 ? formatNumber(emp.socio) : '-'}</td>
-          <td>${emp.efectivo > 0 ? formatNumber(emp.efectivo) : '-'}</td>
-          <td>${emp.facturado > 0 ? formatNumber(emp.facturado) : '-'}</td>
-          <td>${emp.deuda_carro > 0 ? formatNumber(emp.deuda_carro) : '-'}</td>
-          <td style="font-weight: 600;">${calc.totalOtros > 0 ? formatNumber(calc.totalOtros) : '-'}</td>
-          
-          <!-- Sueldos Totales y Ajustes -->
+      `;
+
+      // Render Nominal columns
+      nominalCols.forEach(c => {
+        const val = calc[c.field] !== undefined ? calc[c.field] : emp[c.field];
+        let formatted = '-';
+        if (val > 0) {
+          formatted = c.field === 'factor_integracion' ? val.toFixed(4) : formatNumber(val);
+        }
+        rowHtml += `<td>${formatted}</td>`;
+      });
+
+      // Render Others columns
+      otherCols.forEach(c => {
+        const val = emp[c.field] || 0.0;
+        rowHtml += `<td>${val > 0 ? formatNumber(val) : '-'}</td>`;
+      });
+
+      // Total otros
+      rowHtml += `<td style="font-weight: 600;">${calc.totalOtros > 0 ? formatNumber(calc.totalOtros) : '-'}</td>`;
+
+      // Render sueldos y ajustes row totals
+      rowHtml += `
           <td style="font-weight: 600;">${calc.sueldoBrutoMensual > 0 ? formatNumber(calc.sueldoBrutoMensual) : '-'}</td>
           <td>${calc.sueldoBrutoQuincenalNormal > 0 ? formatNumber(calc.sueldoBrutoQuincenalNormal) : '-'}</td>
           <td class="${calc.descuentoFaltas > 0 ? 'overridden-cell' : ''}">${calc.descuentoFaltas > 0 ? formatNumber(calc.descuentoFaltas) : '-'}</td>
@@ -691,52 +825,53 @@ document.addEventListener("DOMContentLoaded", () => {
           <td class="align-left" style="font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${emp.observaciones || ''}">${emp.observaciones || '-'}</td>
         </tr>
       `;
-      
+
+      tbody.innerHTML += rowHtml;
       if (!calc.isBaja) idx++;
     });
 
-    tbody.innerHTML += `
+    // Render general sum row
+    let sumRowHtml = `
       <tr class="total-row">
         <td colspan="7" class="align-left">TOTALES / SUMAS GENERALES</td>
-        <td>-</td>
-        <td>-</td>
-        <td>-</td>
-        <td>${formatNumber(totals.sueldoNominal)}</td>
-        <td>${formatNumber(totals.puntualidad)}</td>
-        <td>${formatNumber(totals.asistencia)}</td>
-        <td>${formatNumber(totals.valesDespensa)}</td>
-        <td>${formatNumber(totals.fondoAhorro)}</td>
-        <td>${formatNumber(totals.percepcionSueldos)}</td>
-        
-        <td>${formatNumber(totals.asimilados)}</td>
-        <td>${formatNumber(totals.gasolina)}</td>
-        <td>${formatNumber(totals.socio)}</td>
-        <td>${formatNumber(totals.efectivo)}</td>
-        <td>${formatNumber(totals.facturado)}</td>
-        <td>${formatNumber(totals.deudaCarro)}</td>
-        <td>${formatNumber(totals.totalOtros)}</td>
-        
-        <td>${formatNumber(totals.brutoMensual)}</td>
-        <td>${formatNumber(totals.brutoQuincenal)}</td>
-        <td>${formatNumber(totals.descuentoFaltas)}</td>
-        <td>${formatNumber(totals.descuentoAdicional)}</td>
-        <td>${formatNumber(totals.netoQuincenal)}</td>
-        <td>-</td>
-      </tr>
     `;
+
+    nominalCols.forEach(c => {
+      const tVal = totals[c.field];
+      sumRowHtml += `<td>${tVal > 0 && c.field !== 'factor_integracion' ? formatNumber(tVal) : '-'}</td>`;
+    });
+
+    otherCols.forEach(c => {
+      const tVal = totals[c.field];
+      sumRowHtml += `<td>${tVal > 0 ? formatNumber(tVal) : '-'}</td>`;
+    });
+
+    sumRowHtml += `
+      <td>${formatNumber(totals.totalOtros)}</td>
+      <td>${formatNumber(totals.brutoMensual)}</td>
+      <td>${formatNumber(totals.brutoQuincenal)}</td>
+      <td>${formatNumber(totals.descuentoFaltas)}</td>
+      <td>${formatNumber(totals.descuentoAdicional)}</td>
+      <td>${formatNumber(totals.netoQuincenal)}</td>
+      <td>-</td>
+    </tr>
+    `;
+
+    tbody.innerHTML += sumRowHtml;
   }
 
-  // 10. View Rendering - CONFIGURATION (Connected POST)
+  // 12. View Rendering - CONFIGURATION
   const formConfig = document.getElementById("form-config");
   if (formConfig) {
     formConfig.addEventListener("submit", (e) => {
       e.preventDefault();
       const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
+      const api_key = document.getElementById("cfg-gemini-key").value.trim();
 
       fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uma: uma })
+        body: JSON.stringify({ uma: uma, gemini_api_key: api_key })
       })
         .then(res => res.json())
         .then(resData => {
@@ -744,12 +879,12 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(resData.error, "error");
             return;
           }
-          showToast("Configuración de UMA guardada en Excel con éxito.");
+          showToast("Configuración guardada en Excel con éxito.");
           loadState();
         })
         .catch(err => {
           console.error("Error guardando config:", err);
-          showToast("Error al escribir UMA en Excel. Verifica que el archivo no esté bloqueado.", "error");
+          showToast("Error al escribir configuración en Excel. ¿Está abierto el archivo?", "error");
         });
     });
   }
@@ -763,7 +898,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("cfg-prima").value = state.config.prima;
   }
 
-  // 11. Modal Handle: Alta / Edición Colaboradores
+  // 13. Modal Handle: Alta / Edición Colaboradores
   const modal = document.getElementById("modal-collaborator");
   const btnAdd = document.getElementById("btn-add-collaborator");
   const btnClose = document.getElementById("modal-close-btn");
@@ -830,12 +965,17 @@ document.addEventListener("DOMContentLoaded", () => {
       groupSalarioDiario.style.opacity = hasNominal ? "1" : "0.4";
       groupFAToggle.style.opacity = hasNominal ? "1" : "0.4";
 
-      document.getElementById("col-asimilados").value = emp.asimilados || 0.0;
-      document.getElementById("col-gasolina").value = emp.gasolina || 0.0;
-      document.getElementById("col-socio").value = emp.socio || 0.0;
-      document.getElementById("col-efectivo").value = emp.efectivo || 0.0;
-      document.getElementById("col-facturado").value = emp.facturado || 0.0;
-      document.getElementById("col-deuda-carro").value = emp.deuda_carro || 0.0;
+      // Fill other dynamic columns
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "others" && col.editable) {
+            const el = document.getElementById(`col-${col.field}`);
+            if (el) {
+              el.value = emp[col.field] || 0.0;
+            }
+          }
+        });
+      }
     } else {
       document.getElementById("modal-title").textContent = "Dar de Alta Colaborador";
       document.getElementById("edit-col-index").value = "";
@@ -847,10 +987,18 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("col-fa-activo").disabled = false;
       groupSalarioDiario.style.opacity = "1";
       groupFAToggle.style.opacity = "1";
+
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "others" && col.editable) {
+            const el = document.getElementById(`col-${col.field}`);
+            if (el) el.value = 0.0;
+          }
+        });
+      }
     }
   }
 
-  // Handle save collaborator (Connected POST)
   if (formColl) {
     formColl.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -865,9 +1013,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      const salarioDiario = checkNominal.checked ? parseFloat(document.getElementById("col-salario-diario").value) || 0 : 0;
-      const fondoAhorroActivo = checkNominal.checked ? document.getElementById("col-fa-activo").checked : false;
-
       const data = {
         id: cod,
         no: document.getElementById("col-no").value.trim(),
@@ -879,16 +1024,19 @@ document.addEventListener("DOMContentLoaded", () => {
         lugar: document.getElementById("col-lugar").value.trim(),
         ingreso: document.getElementById("col-ingreso").value,
         baja: document.getElementById("col-baja").value || null,
-        fondo_ahorro_activo: fondoAhorroActivo,
-        
-        salario_diario: salarioDiario,
-        asimilados: parseFloat(document.getElementById("col-asimilados").value) || 0.0,
-        gasolina: parseFloat(document.getElementById("col-gasolina").value) || 0.0,
-        socio: parseFloat(document.getElementById("col-socio").value) || 0.0,
-        efectivo: parseFloat(document.getElementById("col-efectivo").value) || 0.0,
-        facturado: parseFloat(document.getElementById("col-facturado").value) || 0.0,
-        deuda_carro: parseFloat(document.getElementById("col-deuda-carro").value) || 0.0
+        fondo_ahorro_activo: checkNominal.checked ? document.getElementById("col-fa-activo").checked : false,
+        salario_diario: checkNominal.checked ? parseFloat(document.getElementById("col-salario-diario").value) || 0 : 0
       };
+
+      // Gather other dynamic payments
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "others" && col.editable) {
+            const el = document.getElementById(`col-${col.field}`);
+            data[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
+          }
+        });
+      }
 
       const isEdit = !!id;
       fetch("/api/collaborator", {
@@ -904,7 +1052,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           showToast(isEdit ? "Cambios guardados en Excel con éxito." : "Colaborador insertado físicamente en Excel.");
           modal.classList.remove("active");
-          loadState(); // Reload and redraw
+          loadState();
         })
         .catch(err => {
           console.error("Error al guardar colaborador:", err);
@@ -913,7 +1061,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Toggle Status: Alta / Baja (Connected POST)
+  // Toggle Status: Alta / Baja
   function toggleCollaboratorStatus(id) {
     const emp = state.employees.find(e => e.id === id);
     if (!emp) return;
@@ -921,10 +1069,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const isCurrentlyBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
     const updatedBaja = isCurrentlyBaja ? null : new Date().toISOString().split("T")[0];
     
-    const updatedData = {
-      ...emp,
-      baja: updatedBaja
-    };
+    const updatedData = { ...emp, baja: updatedBaja };
 
     fetch("/api/collaborator", {
       method: "POST",
@@ -946,7 +1091,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // 12. Refresh and Recalculate (Reload Excel data)
+  // 14. Refresh and Recalculate
   const btnRecalculate = document.getElementById("btn-recalculate");
   if (btnRecalculate) {
     btnRecalculate.addEventListener("click", () => {
@@ -955,7 +1100,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Sync button (Informational helper)
   const btnSyncExcel = document.getElementById("btn-sync-excel");
   if (btnSyncExcel) {
     btnSyncExcel.addEventListener("click", () => {
@@ -964,7 +1108,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 13. Theme Toggle Logic
+  // 15. Theme Toggle Logic
   const themeToggle = document.getElementById("theme-toggle");
   const sunIcon = document.querySelector(".sun-icon");
   const moonIcon = document.querySelector(".moon-icon");
@@ -994,7 +1138,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 14. Formatter helpers
+  // 16. Formatter helpers
   function formatCurrency(val) {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
   }
@@ -1003,7 +1147,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
   }
 
-  // 15. Initialize Application
+  // 17. Initialize Application
   loadState();
 
 });
