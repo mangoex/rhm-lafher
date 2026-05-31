@@ -7,7 +7,7 @@ import urllib.parse
 from datetime import datetime
 
 PORT = 8000
-DIRECTORY = r"c:\Users\Miguel Gonzalez\Downloads\RHM"
+DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(DIRECTORY, "Nomina ciega.xlsx")
 
 class APIHandler(http.server.SimpleHTTPRequestHandler):

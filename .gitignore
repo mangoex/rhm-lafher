@@ -9,3 +9,7 @@
 # Carpetas de desarrollo y dependencias (si aplica)
 node_modules/
 .env
+
+# Archivos específicos de entorno
+*.backup
+AGENTS.md

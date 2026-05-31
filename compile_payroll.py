@@ -104,8 +104,9 @@ def compile_payroll(input_path, output_path, config_incidences):
 
 
 if __name__ == "__main__":
-    input_file = r"c:\Users\Miguel Gonzalez\Downloads\RHM\Nomina ciega.xlsx"
-    output_file = r"c:\Users\Miguel Gonzalez\Downloads\RHM\Nomina_Compilada.xlsx"
+    DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+    input_file = os.path.join(DIRECTORY, "Nomina ciega.xlsx")
+    output_file = os.path.join(DIRECTORY, "Nomina_Compilada.xlsx")
     
     # Simulación de Incidencias enviadas por la Web UI:
     # Llave: Código del Colaborador en Excel (B6:B20)
