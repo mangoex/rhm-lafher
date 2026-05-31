@@ -353,6 +353,11 @@
         
         <form id="form-config">
           <div class="form-grid" style="max-width: 600px;">
+            <div class="form-group full-width" style="grid-column: 1 / -1; margin-bottom: 1rem; border-bottom: 1px dashed var(--panel-border); padding-bottom: 1rem;">
+              <label for="cfg-db-path">Ruta del Archivo de Base de Datos</label>
+              <input type="text" id="cfg-db-path" placeholder="Nomina ciega.xlsx" value="Nomina ciega.xlsx">
+              <small style="color: var(--text-muted);">Soporta formatos Excel (.xlsx) y CSV (.csv). Si el archivo no existe, se generará una plantilla inicial automáticamente.</small>
+            </div>
             <div class="form-group">
               <label for="cfg-uma">UMA 2026 (Unidad de Medida y Actualización)</label>
               <input type="number" id="cfg-uma" step="0.01" value="117.31">

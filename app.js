@@ -64,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (data.uma) {
           state.config.uma = data.uma;
         }
+        state.db_path = data.db_path || "Nomina ciega.xlsx";
         state.period = data.period;
 
         if (dbIndicator) {
@@ -865,10 +866,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 12. View Rendering - CONFIGURATION
+  // 12. View Rendering - CONFIGURATION
   const formConfig = document.getElementById("form-config");
   if (formConfig) {
     formConfig.addEventListener("submit", (e) => {
       e.preventDefault();
+      const db_path = document.getElementById("cfg-db-path").value.trim();
       const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
       const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
       const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
@@ -876,6 +879,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
       const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
       const api_key = document.getElementById("cfg-gemini-key").value.trim();
+
+      if (db_path.toLowerCase().endsWith(".pages")) {
+        showToast("Apple Pages (.pages) es un procesador de textos. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para conectarlo como base de datos.", "error");
+        return;
+      }
+      if (db_path.toLowerCase().endsWith(".numbers")) {
+        showToast("Apple Numbers (.numbers) es un formato cerrado de Apple. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para poder usarlo.", "error");
+        return;
+      }
 
       fetch("/api/config", {
         method: "POST",
@@ -887,7 +899,8 @@ document.addEventListener("DOMContentLoaded", () => {
           fa_pct: fa_pct,
           aguinaldo: aguinaldo,
           prima: prima,
-          gemini_api_key: api_key
+          gemini_api_key: api_key,
+          db_path: db_path
         })
       })
         .then(res => res.json())
@@ -896,17 +909,21 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(resData.error, "error");
             return;
           }
-          showToast("Configuración guardada en Excel con éxito.");
+          showToast("Configuración guardada en la base de datos con éxito.");
           loadState();
         })
         .catch(err => {
           console.error("Error guardando config:", err);
-          showToast("Error al escribir configuración en Excel. ¿Está abierto el archivo?", "error");
+          showToast("Error al escribir configuración. ¿Está abierto o bloqueado el archivo?", "error");
         });
     });
   }
 
   function renderConfig() {
+    const dbPathInput = document.getElementById("cfg-db-path");
+    if (dbPathInput) {
+      dbPathInput.value = state.db_path || "Nomina ciega.xlsx";
+    }
     document.getElementById("cfg-uma").value = state.config.uma;
     document.getElementById("cfg-vales-pct").value = state.config.valesPct;
     document.getElementById("cfg-dias-mes").value = state.config.diasMes;

@@ -19,22 +19,12 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     STATIC_DIR = BASE_DIR
 
-EXCEL_PATH = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
 SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
-
-# Self-extract template files if missing in BASE_DIR (packaged executable support)
 import shutil
+
+# Extract schema.json first if missing and frozen
 if getattr(sys, 'frozen', False):
-    bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
     bundled_schema = os.path.join(STATIC_DIR, "schema.json")
-    
-    if not os.path.exists(EXCEL_PATH) and os.path.exists(bundled_excel):
-        print(f"Excel file missing in executable directory. Copying template to: {EXCEL_PATH}")
-        try:
-            shutil.copyfile(bundled_excel, EXCEL_PATH)
-        except Exception as e:
-            print("Error extracting template Excel:", e)
-            
     if not os.path.exists(SCHEMA_PATH) and os.path.exists(bundled_schema):
         print(f"schema.json missing in executable directory. Copying template to: {SCHEMA_PATH}")
         try:
@@ -44,7 +34,6 @@ if getattr(sys, 'frozen', False):
 
 def load_schema():
     if not os.path.exists(SCHEMA_PATH):
-        # Return empty shell if not exists
         return {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": []}
     try:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
@@ -59,6 +48,118 @@ def save_schema(schema):
             json.dump(schema, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Error saving schema.json:", e)
+
+def get_excel_path():
+    try:
+        schema = load_schema()
+        db_path = schema.get("db_path", "")
+        if db_path:
+            if os.path.isabs(db_path):
+                return db_path
+            return os.path.abspath(os.path.join(BASE_DIR, db_path))
+    except Exception as e:
+        print("Error getting Excel path from schema:", e)
+    return os.path.abspath(os.path.join(BASE_DIR, "Nomina ciega.xlsx"))
+
+def copy_template_if_needed(db_path):
+    if os.path.exists(db_path):
+        return
+    
+    # If it is an XLSX file, copy bundled excel template
+    if db_path.lower().endswith(".xlsx"):
+        bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
+        if not os.path.exists(bundled_excel):
+            bundled_excel = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
+            
+        if os.path.exists(bundled_excel):
+            print(f"Excel database file missing. Copying template to: {db_path}")
+            try:
+                os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                shutil.copyfile(bundled_excel, db_path)
+            except Exception as e:
+                print("Error copying template Excel:", e)
+    elif db_path.lower().endswith(".csv"):
+        # If it is CSV, load bundled excel and save it as CSV
+        bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
+        if not os.path.exists(bundled_excel):
+            bundled_excel = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
+            
+        if os.path.exists(bundled_excel):
+            print(f"CSV Database file missing. Converting template to CSV: {db_path}")
+            try:
+                os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                wb = openpyxl.load_workbook(bundled_excel, data_only=True)
+                ws = wb.active
+                import csv
+                with open(db_path, "w", encoding="utf-8-sig", newline="") as f:
+                    writer = csv.writer(f)
+                    for r in range(1, ws.max_row + 1):
+                        row_vals = [ws.cell(row=r, column=c).value for c in range(1, ws.max_column + 1)]
+                        writer.writerow(row_vals)
+                wb.close()
+            except Exception as e:
+                print("Error creating CSV template:", e)
+
+def load_workbook_agnostic(path, data_only=False):
+    if path.lower().endswith(".csv"):
+        import csv
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8-sig", newline="") as f:
+                    reader = csv.reader(f)
+                    for r_idx, row in enumerate(reader, start=1):
+                        for c_idx, val in enumerate(row, start=1):
+                            if val is not None:
+                                val_str = str(val).strip()
+                                if val_str.startswith("="):
+                                    ws.cell(row=r_idx, column=c_idx).value = val_str
+                                else:
+                                    try:
+                                        if "." in val_str:
+                                            ws.cell(row=r_idx, column=c_idx).value = float(val_str)
+                                        else:
+                                            ws.cell(row=r_idx, column=c_idx).value = int(val_str)
+                                    except ValueError:
+                                        ws.cell(row=r_idx, column=c_idx).value = val
+                            else:
+                                ws.cell(row=r_idx, column=c_idx).value = None
+            except Exception as e:
+                print(f"Error loading CSV to workbook: {e}")
+        return wb
+    else:
+        return openpyxl.load_workbook(path, data_only=data_only)
+
+def save_workbook_agnostic(wb, path):
+    if path.lower().endswith(".csv"):
+        import csv
+        ws = wb.active
+        try:
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f)
+                max_r = ws.max_row
+                max_c = ws.max_column
+                # Find last non-empty row index to avoid endless empty trailing rows
+                last_non_empty = 0
+                for r in range(1, max_r + 1):
+                    row_vals = [ws.cell(row=r, column=c).value for c in range(1, max_c + 1)]
+                    if any(x is not None and str(x).strip() != "" for x in row_vals):
+                        last_non_empty = r
+                
+                for r in range(1, last_non_empty + 1):
+                    row_vals = []
+                    for c in range(1, max_c + 1):
+                        row_vals.append(ws.cell(row=r, column=c).value)
+                    writer.writerow(row_vals)
+        except Exception as e:
+            print(f"Error saving CSV: {e}")
+            raise e
+    else:
+        wb.save(path)
+
+# Extract database template if missing at start
+copy_template_if_needed(get_excel_path())
 
 def get_field_index(schema, field_name):
     for col in schema["columns"]:
@@ -186,10 +287,11 @@ def heal_schema_with_ai(current_headers, old_schema):
 
 def check_and_heal_schema():
     schema = load_schema()
-    if not os.path.exists(EXCEL_PATH):
+    excel_path = get_excel_path()
+    if not os.path.exists(excel_path):
         return schema
     try:
-        wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
+        wb = load_workbook_agnostic(excel_path, data_only=True)
         ws = wb.active
         current_headers = []
         for col_idx in range(1, ws.max_column + 1):
@@ -197,11 +299,11 @@ def check_and_heal_schema():
             current_headers.append(val)
         wb.close()
 
-        while current_headers and current_headers[-1] is None:
+        while current_headers and (current_headers[-1] is None or str(current_headers[-1]).strip() == ""):
             current_headers.pop()
 
         schema_headers = [col.get("header") for col in schema["columns"]]
-        while schema_headers and schema_headers[-1] is None:
+        while schema_headers and (schema_headers[-1] is None or str(schema_headers[-1]).strip() == ""):
             schema_headers.pop()
 
         mismatch = False
@@ -209,7 +311,9 @@ def check_and_heal_schema():
             mismatch = True
         else:
             for ch, sh in zip(current_headers, schema_headers):
-                if ch != sh:
+                ch_str = str(ch).strip() if ch is not None else ""
+                sh_str = str(sh).strip() if sh is not None else ""
+                if ch_str != sh_str:
                     mismatch = True
                     break
 
@@ -330,12 +434,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def get_employees(self):
         try:
             schema = check_and_heal_schema()
-            if not os.path.exists(EXCEL_PATH):
-                self.send_json({"error": f"Excel database file not found at {EXCEL_PATH}"}, 500)
+            excel_path = get_excel_path()
+            copy_template_if_needed(excel_path)
+            if not os.path.exists(excel_path):
+                self.send_json({"error": f"Database file not found at {excel_path}"}, 500)
                 return
 
-            wb_v = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
-            wb_f = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
+            wb_v = load_workbook_agnostic(excel_path, data_only=True)
+            wb_f = load_workbook_agnostic(excel_path, data_only=False)
             sheet_v = wb_v.active
             sheet_f = wb_f.active
 
@@ -453,6 +559,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 "period": schema.get("period", "16 al 30 Abr 2026"),
                 "uma": uma,
                 "config": config,
+                "db_path": schema.get("db_path", "Nomina ciega.xlsx"),
                 "employees": employees
             })
 
@@ -464,8 +571,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def save_collaborator(self, body):
         try:
             schema = check_and_heal_schema()
-            if not os.path.exists(EXCEL_PATH):
-                self.send_json({"error": "Excel database file not found"}, 500)
+            excel_path = get_excel_path()
+            if not os.path.exists(excel_path):
+                self.send_json({"error": "Database file not found"}, 500)
                 return
 
             cod = body.get("id")
@@ -473,7 +581,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "Collaborator ID/Code is required"}, 400)
                 return
 
-            wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
+            wb = load_workbook_agnostic(excel_path, data_only=False)
             ws = wb.active
 
             nombre_col = get_field_index(schema, "nombre")
@@ -608,7 +716,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 ws.cell(row=new_totals_row, column=neto_quincenal_col).value = f"=SUM({neto_quincenal_letter}6:{neto_quincenal_letter}{new_totals_row-1})"
 
             # Save file
-            wb.save(EXCEL_PATH)
+            save_workbook_agnostic(wb, excel_path)
             wb.close()
             
             self.send_json({"success": True, "message": f"Collaborator saved at row {target_row}"})
@@ -621,8 +729,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def save_incidences(self, body):
         try:
             schema = check_and_heal_schema()
-            if not os.path.exists(EXCEL_PATH):
-                self.send_json({"error": "Excel database file not found"}, 500)
+            excel_path = get_excel_path()
+            if not os.path.exists(excel_path):
+                self.send_json({"error": "Database file not found"}, 500)
                 return
 
             cod = body.get("id")
@@ -630,7 +739,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "Collaborator ID/Code is required"}, 400)
                 return
 
-            wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
+            wb = load_workbook_agnostic(excel_path, data_only=False)
             ws = wb.active
 
             nombre_col = get_field_index(schema, "nombre")
@@ -690,7 +799,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2"
 
             # Save file
-            wb.save(EXCEL_PATH)
+            save_workbook_agnostic(wb, excel_path)
             wb.close()
 
             self.send_json({"success": True, "message": f"Incidences applied to collaborator at row {found_row}"})
@@ -702,10 +811,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def save_config(self, body):
         try:
-            if not os.path.exists(EXCEL_PATH):
-                self.send_json({"error": "Excel database file not found"}, 500)
-                return
-
             uma = float(body.get("uma", 117.31))
             vales_pct = float(body.get("vales_pct", 40.0))
             dias_mes = float(body.get("dias_mes", 30.4))
@@ -713,6 +818,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             aguinaldo = float(body.get("aguinaldo", 15.0))
             prima = float(body.get("prima", 25.0))
             api_key = body.get("gemini_api_key", "")
+            db_path = body.get("db_path", "")
 
             schema = load_schema()
             schema["gemini_api_key"] = api_key
@@ -722,9 +828,20 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             schema["fa_pct_cell"] = "L3"
             schema["aguinaldo_cell"] = "J3"
             schema["prima_cell"] = "H3"
+            
+            if db_path is not None:
+                db_path_lower = db_path.strip().lower()
+                if db_path_lower.endswith(".pages") or db_path_lower.endswith(".numbers"):
+                    self.send_json({"error": "Formato de archivo no soportado. Por favor usa Excel (.xlsx) o CSV (.csv)."}, 400)
+                    return
+                schema["db_path"] = db_path.strip()
+                
             save_schema(schema)
 
-            wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
+            excel_path = get_excel_path()
+            copy_template_if_needed(excel_path)
+
+            wb = load_workbook_agnostic(excel_path, data_only=False)
             ws = wb.active
 
             # Write configurations and their labels in Row 3 of Excel
@@ -747,13 +864,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             ws["S3"].value = uma
             ws["S3"].number_format = 'General'
 
-            wb.save(EXCEL_PATH)
+            save_workbook_agnostic(wb, excel_path)
             wb.close()
 
             self.send_json({"success": True, "message": "Global configuration saved in Excel."})
 
         except PermissionError:
-            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
+            self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' está abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             self.send_json({"error": f"Error saving global configuration: {e}"}, 500)
 
