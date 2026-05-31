@@ -920,68 +920,30 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 12b. File upload for payroll rules
+  // 12b. File upload for payroll rules (via native OS dialog for Pywebview compatibility)
   const btnLoadRulesFile = document.getElementById("btn-load-rules-file");
-  const inputRulesFile = document.getElementById("input-rules-file");
-  if (btnLoadRulesFile && inputRulesFile) {
+  if (btnLoadRulesFile) {
     btnLoadRulesFile.addEventListener("click", () => {
-      inputRulesFile.click();
-    });
-
-    inputRulesFile.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const ext = file.name.split('.').pop().toLowerCase();
-      if (ext === "txt" || ext === "md") {
-        showToast("Leyendo archivo de texto de reglas...", "info");
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          const text = evt.target.result;
-          const rulesTextArea = document.getElementById("cfg-payroll-rules");
-          if (rulesTextArea) {
-            rulesTextArea.value = text;
-            showToast("Reglas de nómina actualizadas desde el archivo.");
+      showToast("Abriendo explorador de archivos nativo...", "info");
+      fetch("/api/select-rules-file?_t=" + Date.now())
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            showToast(data.error, "error");
+            return;
           }
-        };
-        reader.readAsText(file);
-      } else if (ext === "docx") {
-        showToast("Extrayendo texto de archivo Word (.docx)...", "info");
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          const arrayBuffer = evt.target.result;
-          fetch("/api/parse-docx", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/octet-stream",
-              "X-File-Name": encodeURIComponent(file.name)
-            },
-            body: arrayBuffer
-          })
-          .then(res => res.json())
-          .then(data => {
-            if (data.text) {
-              const rulesTextArea = document.getElementById("cfg-payroll-rules");
-              if (rulesTextArea) {
-                rulesTextArea.value = data.text;
-                showToast("Reglas de nómina actualizadas desde archivo Word.");
-              }
-            } else if (data.error) {
-              showToast(data.error, "error");
+          if (data.text) {
+            const rulesTextArea = document.getElementById("cfg-payroll-rules");
+            if (rulesTextArea) {
+              rulesTextArea.value = data.text;
+              showToast("Reglas de nómina actualizadas con éxito.");
             }
-          })
-          .catch(err => {
-            console.error("Error al parsear DOCX:", err);
-            showToast("Error al parsear archivo Word.", "error");
-          });
-        };
-        reader.readAsArrayBuffer(file);
-      } else {
-        showToast("Formato de archivo no soportado. Usa .txt, .md o .docx", "error");
-      }
-      
-      // Clear input so same file can be loaded again
-      inputRulesFile.value = "";
+          }
+        })
+        .catch(err => {
+          console.error("Error al cargar reglas:", err);
+          showToast("Error al abrir explorador de archivos para reglas.", "error");
+        });
     });
   }
 

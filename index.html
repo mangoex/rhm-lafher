@@ -394,10 +394,9 @@
                   <button type="button" class="btn btn-secondary btn-sm" id="btn-load-rules-file" style="margin: 0; display: flex; align-items: center; gap: 5px; font-size: 0.8rem; padding: 0.35rem 0.75rem;">
                     <i data-lucide="file-text" style="width: 14px; height: 14px;"></i> Cargar Archivo de Reglas...
                   </button>
-                  <input type="file" id="input-rules-file" accept=".txt,.md,.docx" style="display: none;">
                 </div>
               </div>
-              <textarea id="cfg-payroll-rules" rows="12" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); font-family: monospace; padding: 10px; margin-top: 5px; box-sizing: border-box; resize: vertical; line-height: 1.5; font-size: 0.9rem;" placeholder="Escribe o carga las reglas particulares de nómina para esta empresa aquí..."></textarea>
+              <textarea id="cfg-payroll-rules" rows="12" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); font-family: monospace; padding: 10px; margin-top: 5px; box-sizing: border-box; resize: vertical; line-height: 1.5; font-size: 0.9rem;" placeholder="Escribe o carga las reglas particulares de nómina para esta empresa aquí. En caso de no cargar reglas específicas, el sistema aplicará las reglas contables de nómina estándar de ley en México (Salario Diario Integrado, Vales de Despensa, Fondo de Ahorro, Asistencia y Puntualidad)."></textarea>
               <small style="color: var(--text-muted); display: block; margin-top: 5px;">Estas reglas sirven como base de especificación y validación para el cálculo de la prenómina. Soporta archivos de texto (.txt), markdown (.md) o Word (.docx).</small>
             </div>
             <div class="form-group full-width" style="grid-column: 1 / -1; margin-top: 1rem; border-top: 1px dashed var(--panel-border); padding-top: 1rem;">

@@ -278,6 +278,73 @@ def select_file_via_dialog():
         print("Failed to open dialog via tkinter:", e)
         return None
 
+def select_rules_file_via_dialog():
+    # 1. Try pywebview first if active windows exist
+    try:
+        import webview
+        if hasattr(webview, "windows") and webview.windows:
+            win = webview.windows[0]
+            res = win.create_file_dialog(
+                dialogue_type=webview.OPEN_DIALOG,
+                file_types=('Archivos de Reglas (*.txt;*.md;*.docx)', 'Documento de Word (*.docx)', 'Texto Plano (*.txt;*.md)', 'Todos (*.*)')
+            )
+            if res:
+                return res[0] if isinstance(res, (list, tuple)) else res
+            return None
+    except Exception as e:
+        print("Failed to open rules dialog via pywebview:", e)
+
+    # 2. Fallback to AppleScript on macOS (completely thread-safe)
+    if sys.platform == "darwin":
+        import subprocess
+        try:
+            cmd = "osascript -e 'POSIX path of (choose file of type {\"txt\", \"markdown\", \"md\", \"docx\"} with prompt \"Seleccione el archivo de Reglas de Nómina\")'"
+            proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if proc.returncode == 0:
+                path = proc.stdout.strip()
+                if path:
+                    return path
+            return None
+        except Exception as e:
+            print("Failed to open rules dialog via osascript:", e)
+
+    # 3. Fallback to PowerShell on Windows (completely thread-safe)
+    if sys.platform == "win32":
+        import subprocess
+        try:
+            cmd = (
+                "powershell -Command \""
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+                "$f.Filter = 'Rules Files (*.txt;*.md;*.docx)|*.txt;*.md;*.docx'; "
+                "if ($f.ShowDialog() -eq 'OK') { $f.FileName }\""
+            )
+            proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if proc.returncode == 0:
+                path = proc.stdout.strip()
+                if path:
+                    return path
+            return None
+        except Exception as e:
+            print("Failed to open rules dialog via powershell:", e)
+
+    # 4. Fallback to Tkinter on non-macOS/Windows or if others failed (best effort)
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        file_path = filedialog.askopenfilename(
+            title="Seleccionar archivo de Reglas de Nómina",
+            filetypes=[("Archivos de Reglas", "*.txt;*.md;*.docx"), ("Todos", "*.*")]
+        )
+        root.destroy()
+        return file_path if file_path else None
+    except Exception as e:
+        print("Failed to open rules dialog via tkinter:", e)
+        return None
+
 # Extract database template if missing at start
 copy_template_if_needed(get_excel_path())
 
@@ -508,6 +575,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.get_schema()
         elif path_only == "/api/select-file":
             self.select_file()
+        elif path_only == "/api/select-rules-file":
+            self.select_rules_file()
         else:
             super().do_GET()
 
@@ -575,6 +644,47 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def select_file(self):
         path = select_file_via_dialog()
         self.send_json({"selected_path": path})
+
+    def select_rules_file(self):
+        path = select_rules_file_via_dialog()
+        if not path:
+            self.send_json({"text": None})
+            return
+            
+        try:
+            ext = path.split('.')[-1].lower()
+            if ext == "docx":
+                with open(path, 'rb') as f:
+                    data_bytes = f.read()
+                import zipfile
+                import xml.etree.ElementTree as ET
+                import io
+                with zipfile.ZipFile(io.BytesIO(data_bytes)) as z:
+                    doc_xml = z.read('word/document.xml')
+                    root = ET.fromstring(doc_xml)
+                    paragraphs = []
+                    for elem in root.iter():
+                        tag_name = elem.tag.split('}')[-1]
+                        if tag_name == 'p':
+                            p_text = []
+                            for child in elem.iter():
+                                child_tag = child.tag.split('}')[-1]
+                                if child_tag == 't' and child.text:
+                                    p_text.append(child.text)
+                            text_str = "".join(p_text).strip()
+                            if text_str:
+                                paragraphs.append(text_str)
+                    extracted_text = "\n\n".join(paragraphs)
+            elif ext in ["txt", "md"]:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    extracted_text = f.read()
+            else:
+                self.send_json({"error": "Formato de archivo no soportado. Por favor, selecciona un archivo .txt, .md o .docx."}, 400)
+                return
+                
+            self.send_json({"selected_path": path, "text": extracted_text})
+        except Exception as e:
+            self.send_json({"error": f"Error al leer el archivo de reglas: {e}"}, 500)
 
     def save_clarify(self, body):
         schema = load_schema()
