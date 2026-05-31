@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Fetch dynamic schema configuration first
-    fetch("/api/schema")
+    fetch("/api/schema?_t=" + Date.now())
       .then(res => {
         if (!res.ok) throw new Error("Error cargando esquema");
         return res.json();
@@ -51,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
         generateDynamicInputs();
 
         // Now load employees
-        return fetch("/api/employees");
+        return fetch("/api/employees?_t=" + Date.now());
       })
       .then(res => {
         if (!res.ok) throw new Error("Error de respuesta del servidor");
@@ -923,7 +923,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnSelectDbPath) {
     btnSelectDbPath.addEventListener("click", () => {
       showToast("Abriendo explorador de archivos nativo...", "info");
-      fetch("/api/select-file")
+      fetch("/api/select-file?_t=" + Date.now())
         .then(res => res.json())
         .then(data => {
           if (data.selected_path) {

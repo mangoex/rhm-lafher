@@ -15,18 +15,28 @@ import sys
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
     STATIC_DIR = getattr(sys, '_MEIPASS', BASE_DIR)
+    
+    # Save configuration and default database in user folder to ensure writability on macOS/Windows
+    CONFIG_DIR = os.path.expanduser("~/.rhm_prenomina")
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+    except Exception as e:
+        print(f"Error creating user config directory: {e}")
+        CONFIG_DIR = BASE_DIR
+    SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     STATIC_DIR = BASE_DIR
+    CONFIG_DIR = BASE_DIR
+    SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
 
-SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
 import shutil
 
 # Extract schema.json first if missing and frozen
 if getattr(sys, 'frozen', False):
     bundled_schema = os.path.join(STATIC_DIR, "schema.json")
     if not os.path.exists(SCHEMA_PATH) and os.path.exists(bundled_schema):
-        print(f"schema.json missing in executable directory. Copying template to: {SCHEMA_PATH}")
+        print(f"schema.json missing in config directory. Copying template to: {SCHEMA_PATH}")
         try:
             shutil.copyfile(bundled_schema, SCHEMA_PATH)
         except Exception as e:
@@ -56,9 +66,16 @@ def get_excel_path():
         if db_path:
             if os.path.isabs(db_path):
                 return db_path
+            # Check relative to CONFIG_DIR or BASE_DIR
+            opt1 = os.path.abspath(os.path.join(CONFIG_DIR, db_path))
+            if os.path.exists(opt1):
+                return opt1
             return os.path.abspath(os.path.join(BASE_DIR, db_path))
     except Exception as e:
         print("Error getting Excel path from schema:", e)
+    
+    if getattr(sys, 'frozen', False):
+        return os.path.abspath(os.path.join(CONFIG_DIR, "Nomina ciega.xlsx"))
     return os.path.abspath(os.path.join(BASE_DIR, "Nomina ciega.xlsx"))
 
 def copy_template_if_needed(db_path):
@@ -441,15 +458,19 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def do_GET(self):
-        if self.path == "/api/employees":
+        path_only = self.path.split("?")[0]
+        if path_only == "/api/employees":
             self.get_employees()
-        elif self.path == "/api/schema":
+        elif path_only == "/api/schema":
             self.get_schema()
-        elif self.path == "/api/select-file":
+        elif path_only == "/api/select-file":
             self.select_file()
         else:
             super().do_GET()
@@ -463,13 +484,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": f"Invalid JSON: {e}"}, 400)
             return
 
-        if self.path == "/api/collaborator":
+        path_only = self.path.split("?")[0]
+        if path_only == "/api/collaborator":
             self.save_collaborator(body)
-        elif self.path == "/api/incidences":
+        elif path_only == "/api/incidences":
             self.save_incidences(body)
-        elif self.path == "/api/config":
+        elif path_only == "/api/config":
             self.save_config(body)
-        elif self.path == "/api/schema/clarify":
+        elif path_only == "/api/schema/clarify":
             self.save_clarify(body)
         else:
             self.send_json({"error": "Endpoint not found"}, 404)
@@ -795,7 +817,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": True, "message": f"Collaborator saved at row {target_row}"})
             
         except PermissionError:
-            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
+            self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' está abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             self.send_json({"error": f"Error saving collaborator: {e}", "details": traceback.format_exc()}, 500)
 
@@ -878,7 +900,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": True, "message": f"Incidences applied to collaborator at row {found_row}"})
 
         except PermissionError:
-            self.send_json({"error": "El archivo Excel 'Nomina ciega.xlsx' está abierto en Microsoft Excel. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
+            self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' está abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             self.send_json({"error": f"Error saving incidences: {e}", "details": traceback.format_exc()}, 500)
 
