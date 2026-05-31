@@ -730,9 +730,18 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.innerHTML = "";
 
     const cols = state.schema.columns;
-    
-    // Filter columns for grouped header matching
-    const nominalCols = cols.filter(c => c.index >= 13 && c.index <= 21);
+    const nominalFields = [
+      "salario_diario",
+      "factor_integracion",
+      "sdi",
+      "sueldo_nominal",
+      "puntualidad",
+      "asistencia",
+      "vales_despensa",
+      "fondo_ahorro",
+      "percepcion_sueldos"
+    ];
+    const nominalCols = cols.filter(c => nominalFields.includes(c.field));
     const otherCols = cols.filter(c => c.category === "others");
 
     // Dynamic colspan update in main layout header

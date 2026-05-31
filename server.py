@@ -365,14 +365,125 @@ def call_gemini_api(prompt, api_key):
         print("Error calling Gemini API:", e)
         return None
 
+def heal_schema_locally(current_headers, old_schema):
+    """
+    Deterministically aligns old schema columns with new Excel headers,
+    and automatically registers any new columns using local rules.
+    """
+    import re
+    import openpyxl.utils
+
+    updated_schema = dict(old_schema)
+    old_columns = old_schema.get("columns", [])
+    
+    # Map old columns by header (case-insensitive, stripped)
+    old_by_header = {}
+    for col in old_columns:
+        h = col.get("header")
+        if h:
+            old_by_header[str(h).strip().upper()] = col
+
+    new_columns = []
+    seen_fields = set()
+
+    def clean_field_name(header_str, index):
+        # Convert header to a valid snake_case field name
+        s = header_str.lower().strip()
+        s = re.sub(r"[^\w\s-]", "", s)
+        s = re.sub(r"[\s-]+", "_", s)
+        s = s.strip("_")
+        if not s:
+            return f"col_{index}"
+        # Avoid duplicate fields
+        orig = s
+        counter = 1
+        while s in seen_fields:
+            s = f"{orig}_{counter}"
+            counter += 1
+        return s
+
+    for idx, h_raw in enumerate(current_headers):
+        if h_raw is None:
+            continue
+        h_str = str(h_raw).strip()
+        if not h_str:
+            continue
+        
+        h_upper = h_str.upper()
+        col_idx = idx + 1
+        letter = openpyxl.utils.get_column_letter(col_idx)
+
+        # Check if this header already exists in old schema
+        if h_upper in old_by_header:
+            # Re-align existing column
+            col = dict(old_by_header[h_upper])
+            col["index"] = col_idx
+            col["letter"] = letter
+            new_columns.append(col)
+            seen_fields.add(col["field"])
+        else:
+            # This is a NEW column! Heal/create it locally.
+            field_name = clean_field_name(h_str, col_idx)
+            seen_fields.add(field_name)
+
+            # Determine type and category based on header text
+            category = "metadata"
+            col_type = "string"
+            editable = True
+            incidence_editable = False
+
+            h_lower = h_str.lower()
+            
+            # Simple heuristic matching
+            if any(x in h_lower for x in ["fecha", "ingreso", "baja"]):
+                col_type = "date"
+            elif any(x in h_lower for x in ["cuenta", "activo", "s/n", "si/no"]):
+                col_type = "boolean"
+            elif any(x in h_lower for x in ["descuento", "deuda", "prestamo", "abono"]):
+                col_type = "float"
+                category = "deduction"
+                incidence_editable = True
+            elif any(x in h_lower for x in ["total", "suma", "sdi", "puntualidad", "asistencia", "nominal", "integracion", "acumulado", "bruto"]):
+                col_type = "float"
+                category = "calculated"
+                editable = False
+            elif any(x in h_lower for x in ["diario", "sueldo"]):
+                col_type = "float"
+                category = "nominal_imss"
+            elif any(x in h_lower for x in ["gasolina", "combustible", "bono", "comision", "efectivo", "facturado", "asimilados", "socio"]):
+                col_type = "float"
+                category = "others"
+            elif any(x in h_lower for x in ["monto", "pago", "cantidad", "pesos", "$", "%"]):
+                col_type = "float"
+                category = "others"
+
+            new_col = {
+                "index": col_idx,
+                "letter": letter,
+                "header": h_str,
+                "field": field_name,
+                "type": col_type,
+                "category": category,
+                "label": h_str,
+                "editable": editable,
+                "incidence_editable": incidence_editable
+            }
+            new_columns.append(new_col)
+            print(f"Locally detected and added new column: {h_str} (field: {field_name}, category: {category})")
+
+    # Sort columns by index
+    updated_schema["columns"] = sorted(new_columns, key=lambda x: x["index"])
+    return updated_schema
+
 def heal_schema_with_ai(current_headers, old_schema):
     api_key = get_gemini_api_key(old_schema)
     if not api_key:
-        print("Gemini API Key is missing. Creating a temporary pending clarification to guide the user.")
-        updated_schema = dict(old_schema)
+        print("Gemini API Key is missing. Performing local deterministic schema healing.")
+        updated_schema = heal_schema_locally(current_headers, old_schema)
+        # Create a pending clarification to guide the user to configure key for advanced AI healing
         updated_schema["pending_clarifications"] = [{
             "field": "gemini_api_key",
-            "question": "Se han detectado cambios en las cabeceras de Excel, pero no hay una GEMINI_API_KEY configurada. Por favor, introduce tu clave en la pestaña Configuración para que el Agente pueda procesar y clasificar las nuevas columnas de forma automática.",
+            "question": "Se han detectado cambios en las cabeceras de Excel, pero no hay una GEMINI_API_KEY configurada. Se han alineado las columnas de forma local, pero puedes introducir tu clave en Configuración para usar la clasificación inteligente.",
             "options": ["Reintentar con clave configurada", "Omitir por ahora"]
         }]
         return updated_schema
@@ -447,8 +558,8 @@ def heal_schema_with_ai(current_headers, old_schema):
         updated_schema["pending_clarifications"] = res.get("pending_clarifications", [])
         return updated_schema
     else:
-        print("AI Schema healing failed or timed out. Using old schema as fallback.")
-        return old_schema
+        print("AI Schema healing failed or timed out. Falling back to local deterministic schema healing.")
+        return heal_schema_locally(current_headers, old_schema)
 
 def check_and_heal_schema():
     schema = load_schema()
