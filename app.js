@@ -1429,6 +1429,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (headerUserInfo && headerUsername) {
       headerUsername.textContent = `${username} (${role === 'admin' ? 'Admin' : 'Capturista'})`;
       headerUserInfo.style.display = "flex";
+      
+      if (role === "admin") {
+        headerUsername.style.cursor = "pointer";
+        headerUsername.style.textDecoration = "underline";
+        headerUsername.style.textDecorationStyle = "dotted";
+        headerUsername.style.color = "var(--primary-light, #818cf8)";
+        headerUsername.title = "Administrador - Clic para gestionar usuarios";
+      } else {
+        headerUsername.style.cursor = "default";
+        headerUsername.style.textDecoration = "none";
+        headerUsername.style.color = "var(--text-color)";
+        headerUsername.title = "";
+      }
     }
 
     // Role restrictions
@@ -1523,6 +1536,20 @@ document.addEventListener("DOMContentLoaded", () => {
         showLoginScreen();
         showToast("Sesión cerrada");
       });
+    });
+  }
+
+  // Click on admin username in header navigates to Configuration tab
+  const headerUsernameElement = document.getElementById("header-username");
+  if (headerUsernameElement) {
+    headerUsernameElement.addEventListener("click", () => {
+      const role = localStorage.getItem("rhm_user_role") || "capturista";
+      if (role === "admin") {
+        const configTabBtn = document.querySelector('.nav-links button[data-target="config"]');
+        if (configTabBtn) {
+          configTabBtn.click();
+        }
+      }
     });
   }
 

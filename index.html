@@ -302,52 +302,86 @@
 
         </div>
 
-        <div class="prenomina-sheet-container">
-          <div class="prenomina-table-wrapper">
-            <table class="prenomina-table">
-              <thead>
-                <tr>
-                  <th rowspan="2">No.</th>
-                  <th rowspan="2">Cod.</th>
-                  <th rowspan="2">Empresa</th>
-                  <th rowspan="2">Nombre Completo</th>
-                  <th rowspan="2">Fecha Ingreso</th>
-                  <th rowspan="2">Antigüedad (Años)</th>
-                  <th rowspan="2">F.A.?</th>
-                  <th colspan="9">Esquema Nominal IMSS (Cálculos Base)</th>
-                  <th colspan="7">Otros Conceptos (Esquemas Base)</th>
-                  <th rowspan="2">Sueldo Bruto Mensual</th>
-                  <th rowspan="2">Sueldo Bruto Quincenal</th>
-                  <th rowspan="2">Descuento Incidencia</th>
-                  <th rowspan="2">Descuento Adicional</th>
-                  <th rowspan="2">Sueldo Neto Quincenal</th>
-                  <th rowspan="2">Observaciones</th>
-                </tr>
-                <tr>
-                  <!-- Sub-headers for Nominal IMSS -->
-                  <th>Salario Diario</th>
-                  <th>Factor Integración</th>
-                  <th>SDI</th>
-                  <th>Sueldo Nominal</th>
-                  <th>Puntualidad</th>
-                  <th>Asistencia</th>
-                  <th>Vales Despensa</th>
-                  <th>Fondo Ahorro</th>
-                  <th>Total Percepción</th>
-                  <!-- Sub-headers for Otros Conceptos -->
-                  <th>Asimilados</th>
-                  <th>Gasolina</th>
-                  <th>Socio</th>
-                  <th>Efectivo</th>
-                  <th>Facturado</th>
-                  <th>Abono Carro</th>
-                  <th>Total Otros</th>
-                </tr>
-              </thead>
-              <tbody id="prenomina-table-body">
-                <!-- Populated dynamically via JS -->
-              </tbody>
-            </table>
+        <div class="prenomina-view-layout">
+          <div class="prenomina-sheet-container">
+            <div class="prenomina-table-wrapper">
+              <table class="prenomina-table">
+                <thead>
+                  <tr>
+                    <th rowspan="2">No.</th>
+                    <th rowspan="2">Cod.</th>
+                    <th rowspan="2">Empresa</th>
+                    <th rowspan="2">Nombre Completo</th>
+                    <th rowspan="2">Fecha Ingreso</th>
+                    <th rowspan="2">Antigüedad (Años)</th>
+                    <th rowspan="2">F.A.?</th>
+                    <th colspan="9" id="header-nominal-colspan">Esquema Nominal IMSS (Cálculos Base)</th>
+                    <th colspan="7" id="header-otros-colspan">Otros Conceptos (Esquemas Base)</th>
+                    <th rowspan="2">Sueldo Bruto Mensual</th>
+                    <th rowspan="2">Sueldo Bruto Quincenal</th>
+                    <th rowspan="2">Descuento Incidencia</th>
+                    <th rowspan="2">Descuento Adicional</th>
+                    <th rowspan="2">Sueldo Neto Quincenal</th>
+                    <th rowspan="2">Observaciones</th>
+                  </tr>
+                  <tr id="prenomina-subheaders-row">
+                    <!-- Sub-headers for Nominal IMSS -->
+                    <th>Salario Diario</th>
+                    <th>Factor Integración</th>
+                    <th>SDI</th>
+                    <th>Sueldo Nominal</th>
+                    <th>Puntualidad</th>
+                    <th>Asistencia</th>
+                    <th>Vales Despensa</th>
+                    <th>Fondo Ahorro</th>
+                    <th>Total Percepción</th>
+                    <!-- Sub-headers for Otros Conceptos -->
+                    <th>Asimilados</th>
+                    <th>Gasolina</th>
+                    <th>Socio</th>
+                    <th>Efectivo</th>
+                    <th>Facturado</th>
+                    <th>Abono Carro</th>
+                    <th>Total Otros</th>
+                  </tr>
+                </thead>
+                <tbody id="prenomina-table-body">
+                  <!-- Populated dynamically via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- AI Explainer Sidebar (Split Layout) -->
+          <div class="prenomina-ai-sidebar" id="prenomina-ai-sidebar">
+            <div class="ai-sidebar-header">
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; margin: 0;">
+                <i data-lucide="sparkles" style="color: var(--secondary); width: 18px; height: 18px;"></i> Explicación de Nómina con IA
+                <span class="badge rules-badge-official" id="ai-rules-badge" style="font-size: 0.7rem; padding: 2px 8px;">Reglas Oficiales LFT</span>
+              </h3>
+              <button class="btn-close-sidebar" id="btn-close-ai-sidebar" title="Cerrar panel">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+              </button>
+            </div>
+            
+            <div class="ai-sidebar-collab-info">
+              <div id="ai-collab-name" style="font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px;">Selecciona un colaborador</div>
+              <div id="ai-collab-details" style="font-size: 0.8rem; color: var(--text-muted);">Haz clic en una fila para ver el desglose</div>
+            </div>
+            
+            <div class="ai-chat-messages" id="ai-chat-messages">
+              <div class="ai-chat-placeholder">
+                <i data-lucide="message-square" style="width: 32px; height: 32px; margin-bottom: 8px; color: var(--text-muted); opacity: 0.5;"></i>
+                <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">Haz clic en cualquier colaborador de la tabla de la izquierda para ver la explicación matemática detallada de su nómina.</p>
+              </div>
+            </div>
+            
+            <div class="ai-chat-input-area">
+              <input type="text" id="ai-chat-input" placeholder="Pregunta sobre el cálculo o da instrucciones..." disabled style="flex-grow: 1;">
+              <button class="btn btn-primary" id="btn-ai-chat-send" style="padding: 0.5rem 1rem; margin: 0;" disabled>
+                <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+              </button>
+            </div>
           </div>
         </div>
       </div>

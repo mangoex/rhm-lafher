@@ -63,11 +63,8 @@ def load_users():
         return {}
 
 def save_users(users):
-    try:
-        with open(USERS_FILE, "w") as f:
-            json.dump(users, f, indent=4)
-    except Exception as e:
-        print("Error saving users:", e)
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
 
 # Extract schema.json first if missing and frozen
 if getattr(sys, 'frozen', False):
@@ -394,7 +391,7 @@ def get_gemini_api_key(schema):
     return os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
 
 def call_gemini_api(prompt, api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     req_data = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -1921,7 +1918,7 @@ VALORES REGISTRADOS EN EXCEL:
                 })
 
             # Call Gemini Chat API
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
             req_data = {
                 "contents": contents,
                 "systemInstruction": {
