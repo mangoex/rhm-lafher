@@ -162,6 +162,13 @@ header {
   gap: 1rem;
 }
 
+#header-username {
+  cursor: default !important;
+  color: var(--text-color) !important;
+  text-decoration: none !important;
+  font-weight: 600;
+}
+
 .theme-toggle {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--panel-border);

@@ -63,7 +63,8 @@ document.addEventListener("DOMContentLoaded", () => {
     config: { ...DEFAULT_CONFIG },
     activeTab: "dashboard",
     selectedIncidenceEmployeeId: null,
-    period: "16 al 30 Abr 2026"
+    period: "16 al 30 Abr 2026",
+    currentEmployeeIncidences: []
   };
 
   // 2. Load State from Python API
@@ -118,9 +119,9 @@ document.addEventListener("DOMContentLoaded", () => {
           dbIndicator.innerHTML = '<i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado';
         }
         
-        const periodInd = document.getElementById("period-indicator");
-        if (periodInd) {
-          periodInd.textContent = `Periodo Activo: ${state.period}`;
+        const periodSelect = document.getElementById("period-select");
+        if (periodSelect) {
+          periodSelect.value = state.period;
         }
 
         renderActiveView();
@@ -702,30 +703,205 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("inc-form-container").style.display = "block";
     document.getElementById("inc-coll-name").textContent = `Incidencias: ${emp.nombre}`;
     
-    document.getElementById("inc-faltas").value = emp.faltas || 0;
-    document.getElementById("inc-retardos").value = emp.retardos || 0;
-    document.getElementById("inc-vacaciones").value = emp.vacaciones || 0;
-    document.getElementById("inc-observaciones").value = emp.observaciones || "";
-
-    const pSel = document.getElementById("inc-puntualidad");
-    if (pSel) {
-      pSel.value = (emp.salario_diario > 0 && emp.puntualidad === 0) ? "NO" : "SI";
+    const dateInput = document.getElementById("inc-fecha");
+    if (dateInput) {
+      dateInput.value = getPeriodDefaultDate(state.period);
     }
-    const aSel = document.getElementById("inc-asistencia");
-    if (aSel) {
-      aSel.value = (emp.salario_diario > 0 && emp.asistencia === 0) ? "NO" : "SI";
+    
+    loadIncidencesForSelectedEmployee(id);
+  }
+
+  function loadIncidencesForSelectedEmployee(id) {
+    const historyContainer = document.getElementById("incidence-history-container");
+    if (!historyContainer) return Promise.resolve();
+
+    historyContainer.innerHTML = '<div style="text-align:center; padding: 1rem;"><i data-lucide="refresh-cw" class="spin" style="width: 18px; height: 18px;"></i> Cargando historial...</div>';
+    if (window.lucide) lucide.createIcons();
+
+    return fetch(`/api/incidences?id=${encodeURIComponent(id)}`, {
+      headers: {
+        "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Error cargando historial de incidencias");
+        return res.json();
+      })
+      .then(incidences => {
+        state.currentEmployeeIncidences = incidences;
+        renderIncidenceHistory(incidences);
+        applyIncidenceValuesForSelectedDate();
+      })
+      .catch(err => {
+        console.error("Error loading incidences history:", err);
+        historyContainer.innerHTML = '<div style="color: var(--danger); text-align:center; padding: 1rem;">Error al cargar historial</div>';
+      });
+  }
+
+  function renderIncidenceHistory(incidences) {
+    const historyContainer = document.getElementById("incidence-history-container");
+    if (!historyContainer) return;
+
+    if (incidences.length === 0) {
+      historyContainer.innerHTML = `
+        <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-muted);">Incidencias Registradas en la Quincena</h4>
+        <div style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--panel-border); text-align: center;">
+          No hay incidencias registradas para este colaborador en esta quincena.
+        </div>
+      `;
+      return;
     }
 
-    // Fill dynamic deduction values
-    if (state.schema && state.schema.columns) {
-      state.schema.columns.forEach(col => {
-        if (col.category === "deduction" && col.incidence_editable) {
-          const el = document.getElementById(`inc-${col.field}`);
-          if (el) {
-            el.value = emp[col.field] || 0.0;
+    let rowsHtml = "";
+    incidences.forEach(inc => {
+      let details = [];
+      if (inc.faltas > 0) details.push(`${inc.faltas} falta${inc.faltas > 1 ? 's' : ''}`);
+      if (inc.vacaciones > 0) details.push(`${inc.vacaciones} vacación${inc.vacaciones > 1 ? 'es' : ''}`);
+      if (inc.retardos > 0) details.push(`${inc.retardos} retardo${inc.retardos > 1 ? 's' : ''}`);
+      
+      const descVal = parseFloat(inc.descuento_adicional) || 0.0;
+      if (descVal > 0) details.push(`Desc. adicional: ${formatCurrency(descVal)}`);
+      
+      // Dynamic deductions
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "deduction" && col.incidence_editable && col.field !== "descuento_adicional") {
+            const val = parseFloat(inc[col.field]) || 0.0;
+            if (val > 0) {
+              details.push(`${col.label || col.header}: ${formatCurrency(val)}`);
+            }
           }
+        });
+      }
+
+      const descText = details.join(", ") || "Observación / Justificación";
+      const obs = inc.observaciones ? ` <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top: 2px;">Obs: ${inc.observaciones}</span>` : "";
+
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 6px 4px; font-size:0.8rem; font-weight: 600; white-space: nowrap;">${inc.date}</td>
+          <td style="padding: 6px 4px; font-size:0.8rem; line-height: 1.3;">
+            <strong>${descText}</strong>
+            ${obs}
+          </td>
+          <td style="padding: 6px 4px; text-align: right;">
+            <button type="button" class="btn-delete-incidence" data-date="${inc.date}" style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px;" title="Eliminar Incidencia">
+              <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    historyContainer.innerHTML = `
+      <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">Incidencias Registradas en la Quincena</h4>
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--panel-border); text-align: left;">
+            <th style="padding: 4px; font-size: 0.75rem; color: var(--text-muted); width: 25%;">Fecha</th>
+            <th style="padding: 4px; font-size: 0.75rem; color: var(--text-muted); width: 60%;">Detalle</th>
+            <th style="padding: 4px; text-align: right; font-size: 0.75rem; color: var(--text-muted); width: 15%;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+    if (window.lucide) lucide.createIcons();
+
+    // Register delete click listeners
+    historyContainer.querySelectorAll(".btn-delete-incidence").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const date = btn.getAttribute("data-date");
+        if (confirm(`¿Estás seguro de que deseas eliminar la incidencia del día ${date}?`)) {
+          deleteIncidence(state.selectedIncidenceEmployeeId, date);
         }
       });
+    });
+  }
+
+  function deleteIncidence(employeeId, date) {
+    fetch(`/api/incidences?employee_id=${encodeURIComponent(employeeId)}&date=${encodeURIComponent(date)}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+      }
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(d => { throw new Error(d.error || "Error al eliminar incidencia"); });
+        }
+        return res.json();
+      })
+      .then(resData => {
+        showToast("Incidencia eliminada con éxito.");
+        loadState().then(() => {
+          loadIncidencesForSelectedEmployee(state.selectedIncidenceEmployeeId);
+        });
+      })
+      .catch(err => {
+        console.error("Delete incidence failed:", err);
+        showToast(err.message, "error");
+      });
+  }
+
+  function applyIncidenceValuesForSelectedDate() {
+    const dateInput = document.getElementById("inc-fecha");
+    if (!dateInput) return;
+    const selectedDate = dateInput.value;
+    
+    // Find incidence for this date
+    const inc = (state.currentEmployeeIncidences || []).find(i => i.date === selectedDate);
+    
+    if (inc) {
+      document.getElementById("inc-faltas").value = inc.faltas || 0;
+      document.getElementById("inc-retardos").value = inc.retardos || 0;
+      document.getElementById("inc-vacaciones").value = inc.vacaciones || 0;
+      document.getElementById("inc-observaciones").value = inc.observaciones || "";
+      
+      const pSel = document.getElementById("inc-puntualidad");
+      if (pSel) pSel.value = inc.puntualidad || "SI";
+      
+      const aSel = document.getElementById("inc-asistencia");
+      if (aSel) aSel.value = inc.asistencia || "SI";
+      
+      // Dynamic deductions
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "deduction" && col.incidence_editable) {
+            const el = document.getElementById(`inc-${col.field}`);
+            if (el) {
+              el.value = inc[col.field] || 0.0;
+            }
+          }
+        });
+      }
+    } else {
+      // Reset values
+      document.getElementById("inc-faltas").value = 0;
+      document.getElementById("inc-retardos").value = 0;
+      document.getElementById("inc-vacaciones").value = 0;
+      document.getElementById("inc-observaciones").value = "";
+      
+      const pSel = document.getElementById("inc-puntualidad");
+      if (pSel) pSel.value = "SI";
+      
+      const aSel = document.getElementById("inc-asistencia");
+      if (aSel) aSel.value = "SI";
+      
+      // Dynamic deductions
+      if (state.schema && state.schema.columns) {
+        state.schema.columns.forEach(col => {
+          if (col.category === "deduction" && col.incidence_editable) {
+            const el = document.getElementById(`inc-${col.field}`);
+            if (el) {
+              el.value = 0.0;
+            }
+          }
+        });
+      }
     }
   }
 
@@ -736,13 +912,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!state.selectedIncidenceEmployeeId) return;
 
       const faltas = parseInt(document.getElementById("inc-faltas").value) || 0;
+      const retardos = parseInt(document.getElementById("inc-retardos").value) || 0;
+      const vacaciones = parseInt(document.getElementById("inc-vacaciones").value) || 0;
       const observaciones = document.getElementById("inc-observaciones").value.trim();
       const puntualidad = document.getElementById("inc-puntualidad") ? document.getElementById("inc-puntualidad").value : "SI";
       const asistencia = document.getElementById("inc-asistencia") ? document.getElementById("inc-asistencia").value : "SI";
 
+      const dateVal = document.getElementById("inc-fecha") ? document.getElementById("inc-fecha").value : "";
       const payload = {
         id: state.selectedIncidenceEmployeeId,
+        date: dateVal,
         faltas,
+        retardos,
+        vacaciones,
         observaciones,
         puntualidad,
         asistencia
@@ -763,7 +945,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       fetch("/api/incidences", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+        },
         body: JSON.stringify(payload)
       })
         .then(res => res.json())
@@ -773,12 +958,23 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
           }
           showToast("Incidencias guardadas en Excel con éxito.");
-          loadState();
+          loadState().then(() => {
+            if (state.selectedIncidenceEmployeeId) {
+              loadIncidencesForSelectedEmployee(state.selectedIncidenceEmployeeId);
+            }
+          });
         })
         .catch(err => {
           console.error("Error guardando incidencias:", err);
           showToast("Error al guardar incidencias en Excel. Verifica que el archivo no esté abierto.", "error");
         });
+    });
+  }
+
+  const incFechaInput = document.getElementById("inc-fecha");
+  if (incFechaInput) {
+    incFechaInput.addEventListener("change", () => {
+      applyIncidenceValuesForSelectedDate();
     });
   }
 
@@ -1358,22 +1554,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // 14. Refresh and Recalculate
-  const btnRecalculate = document.getElementById("btn-recalculate");
-  if (btnRecalculate) {
-    btnRecalculate.addEventListener("click", () => {
-      loadState();
-      showToast("Datos recargados desde el archivo Excel.");
-    });
-  }
 
-  const btnSyncExcel = document.getElementById("btn-sync-excel");
-  if (btnSyncExcel) {
-    btnSyncExcel.addEventListener("click", () => {
-      loadState();
-      showToast("Excel actualizado y datos recargados con éxito.");
-    });
-  }
+
+
 
   const btnDownloadExcel = document.getElementById("btn-download-excel");
   if (btnDownloadExcel) {
@@ -1429,19 +1612,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (headerUserInfo && headerUsername) {
       headerUsername.textContent = `${username} (${role === 'admin' ? 'Admin' : 'Capturista'})`;
       headerUserInfo.style.display = "flex";
-      
-      if (role === "admin") {
-        headerUsername.style.cursor = "pointer";
-        headerUsername.style.textDecoration = "underline";
-        headerUsername.style.textDecorationStyle = "dotted";
-        headerUsername.style.color = "var(--primary-light, #818cf8)";
-        headerUsername.title = "Administrador - Clic para gestionar usuarios";
-      } else {
-        headerUsername.style.cursor = "default";
-        headerUsername.style.textDecoration = "none";
-        headerUsername.style.color = "var(--text-color)";
-        headerUsername.title = "";
-      }
+      headerUsername.style.cursor = "default";
+      headerUsername.style.textDecoration = "none";
+      headerUsername.style.color = "var(--text-color)";
+      headerUsername.title = "";
     }
 
     // Role restrictions
@@ -1539,19 +1713,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Click on admin username in header navigates to Configuration tab
-  const headerUsernameElement = document.getElementById("header-username");
-  if (headerUsernameElement) {
-    headerUsernameElement.addEventListener("click", () => {
-      const role = localStorage.getItem("rhm_user_role") || "capturista";
-      if (role === "admin") {
-        const configTabBtn = document.querySelector('.nav-links button[data-target="config"]');
-        if (configTabBtn) {
-          configTabBtn.click();
-        }
-      }
-    });
-  }
+
 
   // Create user form handler
   const formCreateUser = document.getElementById("form-create-user");
@@ -2028,6 +2190,57 @@ document.addEventListener("DOMContentLoaded", () => {
       lines.push(tableHtml);
     }
     return lines.filter(l => l !== "").join("\n");
+  }
+
+  function getPeriodDefaultDate(periodStr) {
+    if (!periodStr) return new Date().toISOString().split("T")[0];
+    const match = periodStr.match(/(\d+)\s+al\s+(\d+)\s+(\w+)\s+(\d{4})/i);
+    if (match) {
+      const dayStart = parseInt(match[1]);
+      const monthStr = match[3].toLowerCase().substring(0, 3);
+      const year = parseInt(match[4]);
+      
+      const months = {
+        ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+        jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11
+      };
+      const month = months[monthStr] !== undefined ? months[monthStr] : 3;
+      
+      // Default to start date of the period
+      const d = new Date(year, month, dayStart);
+      // Offset timezone to avoid UTC shifts
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      return new Date(d.getTime() - tzOffset).toISOString().split("T")[0];
+    }
+    return new Date().toISOString().split("T")[0];
+  }
+
+  const periodSelect = document.getElementById("period-select");
+  if (periodSelect) {
+    periodSelect.addEventListener("change", (e) => {
+      const newPeriod = e.target.value;
+      fetch("/api/period", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+        },
+        body: JSON.stringify({ period: newPeriod })
+      })
+        .then(res => res.json())
+        .then(resData => {
+          if (resData.error) {
+            showToast(resData.error, "error");
+            return;
+          }
+          showToast(`Periodo cambiado a: ${newPeriod}`);
+          loadState();
+        })
+        .catch(err => {
+          console.error("Error cambiando periodo:", err);
+          showToast("Error al actualizar el periodo.", "error");
+        });
+    });
   }
 
 });

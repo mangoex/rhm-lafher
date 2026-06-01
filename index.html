@@ -40,7 +40,35 @@
     
     <div class="header-actions">
       <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: flex; align-items: center; gap: 0.25rem;"><i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado</div>
-      <div id="period-indicator" class="badge info">Periodo Activo: 16 al 30 Abr 2026</div>
+      <div id="period-container" style="display: flex; align-items: center; gap: 6px; margin-right: 0.5rem;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Periodo:</span>
+        <select id="period-select" style="border: 1px solid var(--panel-border); background: var(--panel-bg); color: var(--text-color); cursor: pointer; padding: 4px 8px; font-size: 0.85rem; font-weight: 600; border-radius: var(--border-radius); outline: none;">
+          <option value="1 al 15 Ene 2026">1 al 15 Ene 2026</option>
+          <option value="16 al 31 Ene 2026">16 al 31 Ene 2026</option>
+          <option value="1 al 15 Feb 2026">1 al 15 Feb 2026</option>
+          <option value="16 al 28 Feb 2026">16 al 28 Feb 2026</option>
+          <option value="1 al 15 Mar 2026">1 al 15 Mar 2026</option>
+          <option value="16 al 31 Mar 2026">16 al 31 Mar 2026</option>
+          <option value="1 al 15 Abr 2026">1 al 15 Abr 2026</option>
+          <option value="16 al 30 Abr 2026" selected>16 al 30 Abr 2026</option>
+          <option value="1 al 15 May 2026">1 al 15 May 2026</option>
+          <option value="16 al 31 May 2026">16 al 31 May 2026</option>
+          <option value="1 al 15 Jun 2026">1 al 15 Jun 2026</option>
+          <option value="16 al 30 Jun 2026">16 al 30 Jun 2026</option>
+          <option value="1 al 15 Jul 2026">1 al 15 Jul 2026</option>
+          <option value="16 al 31 Jul 2026">16 al 31 Jul 2026</option>
+          <option value="1 al 15 Ago 2026">1 al 15 Ago 2026</option>
+          <option value="16 al 31 Ago 2026">16 al 31 Ago 2026</option>
+          <option value="1 al 15 Sep 2026">1 al 15 Sep 2026</option>
+          <option value="16 al 30 Sep 2026">16 al 30 Sep 2026</option>
+          <option value="1 al 15 Oct 2026">1 al 15 Oct 2026</option>
+          <option value="16 al 31 Oct 2026">16 al 31 Oct 2026</option>
+          <option value="1 al 15 Nov 2026">1 al 15 Nov 2026</option>
+          <option value="16 al 30 Nov 2026">16 al 30 Nov 2026</option>
+          <option value="1 al 15 Dic 2026">1 al 15 Dic 2026</option>
+          <option value="16 al 31 Dic 2026">16 al 31 Dic 2026</option>
+        </select>
+      </div>
       <button id="theme-toggle" class="theme-toggle" title="Cambiar Tema">
         <i data-lucide="sun" class="sun-icon"></i>
         <i data-lucide="moon" class="moon-icon" style="display:none;"></i>
@@ -240,8 +268,15 @@
             <div class="content-box" style="background: rgba(0, 0, 0, 0.1); border: 1px solid var(--panel-border);">
               <h3 id="inc-coll-name" style="margin-bottom: 1rem; color: var(--secondary);">Selecciona un colaborador para capturar incidencias</h3>
               <div id="inc-form-container" style="display: none;">
+                <div id="incidence-history-container" style="margin-bottom: 1.5rem; border-bottom: 1px dashed var(--panel-border); padding-bottom: 1.5rem;">
+                  <!-- Se llena dinámicamente -->
+                </div>
                 <form id="form-capture-incidence">
                   <div class="form-grid">
+                    <div class="form-group">
+                      <label for="inc-fecha">Fecha de Registro</label>
+                      <input type="date" id="inc-fecha" required style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                    </div>
                     <div class="form-group">
                       <label for="inc-faltas">Faltas / Ausencias (Días)</label>
                       <input type="number" id="inc-faltas" min="0" max="15" value="0">
@@ -288,12 +323,6 @@
           <div class="action-buttons">
             <button class="btn btn-secondary" id="btn-export-excel" style="display: none;">
               <i data-lucide="download"></i> Descargar Temporal CSV
-            </button>
-            <button class="btn btn-primary" id="btn-sync-excel">
-              <i data-lucide="save"></i> Aplicar cambios o actualizar
-            </button>
-            <button class="btn btn-secondary" id="btn-recalculate">
-              <i data-lucide="refresh-cw"></i> Recargar Excel
             </button>
             <button class="btn btn-secondary" id="btn-download-excel" title="Descargar respaldo del archivo Excel activo">
               <i data-lucide="download"></i> Descargar Excel (.xlsx)
