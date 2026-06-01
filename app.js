@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Fetch dynamic schema configuration first
-    fetch("/api/schema?_t=" + Date.now())
+    return fetch("/api/schema?_t=" + Date.now())
       .then(res => {
         if (!res.ok) throw new Error("Error cargando esquema");
         return res.json();
@@ -220,8 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Nominal Perceptions
     const sueldoNominal = (emp.salario_diario && !isBaja) ? (emp.salario_diario * cfg.diasMes) : 0;
-    const puntualidad = sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0;
-    const asistencia = sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0;
+    const puntualidad = (emp.salario_diario && emp.puntualidad === 0) ? 0 : (sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0);
+    const asistencia = (emp.salario_diario && emp.asistencia === 0) ? 0 : (sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0);
     const valesDespensa = (emp.salario_diario && !isBaja) ? (cfg.uma * (cfg.valesPct / 100) * cfg.diasMes) : 0;
     const fondoAhorro = (emp.salario_diario && emp.fondo_ahorro_activo && !isBaja) ? (sueldoNominal * (cfg.faPct / 100)) : 0;
     
@@ -661,6 +661,15 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("inc-vacaciones").value = emp.vacaciones || 0;
     document.getElementById("inc-observaciones").value = emp.observaciones || "";
 
+    const pSel = document.getElementById("inc-puntualidad");
+    if (pSel) {
+      pSel.value = (emp.salario_diario > 0 && emp.puntualidad === 0) ? "NO" : "SI";
+    }
+    const aSel = document.getElementById("inc-asistencia");
+    if (aSel) {
+      aSel.value = (emp.salario_diario > 0 && emp.asistencia === 0) ? "NO" : "SI";
+    }
+
     // Fill dynamic deduction values
     if (state.schema && state.schema.columns) {
       state.schema.columns.forEach(col => {
@@ -682,11 +691,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const faltas = parseInt(document.getElementById("inc-faltas").value) || 0;
       const observaciones = document.getElementById("inc-observaciones").value.trim();
+      const puntualidad = document.getElementById("inc-puntualidad") ? document.getElementById("inc-puntualidad").value : "SI";
+      const asistencia = document.getElementById("inc-asistencia") ? document.getElementById("inc-asistencia").value : "SI";
 
       const payload = {
         id: state.selectedIncidenceEmployeeId,
         faltas,
-        observaciones
+        observaciones,
+        puntualidad,
+        asistencia
       };
 
       // Gather dynamic deductions
@@ -819,10 +832,14 @@ document.addEventListener("DOMContentLoaded", () => {
       nominalCols.forEach(c => {
         const val = calc[c.field] !== undefined ? calc[c.field] : emp[c.field];
         let formatted = '-';
+        let cellClass = '';
         if (val > 0) {
           formatted = c.field === 'factor_integracion' ? val.toFixed(4) : formatNumber(val);
+        } else if (val === 0 && emp.salario_diario > 0 && (c.field === 'puntualidad' || c.field === 'asistencia')) {
+          formatted = '0.00';
+          cellClass = 'class="overridden-cell"';
         }
-        rowHtml += `<td>${formatted}</td>`;
+        rowHtml += `<td ${cellClass}>${formatted}</td>`;
       });
 
       // Render Others columns
@@ -877,9 +894,45 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
 
     tbody.innerHTML += sumRowHtml;
+
+    // Register click listeners on the rendered rows
+    const rows = tbody.querySelectorAll("tr:not(.total-row)");
+    rows.forEach(row => {
+      // Highlight row if it is the currently selected employee
+      const idCell = row.querySelector("td:nth-child(2)");
+      if (idCell) {
+        const empId = idCell.textContent.trim();
+        if (empId === currentAIEmployeeId) {
+          row.classList.add("selected-row");
+        }
+      }
+      
+      row.addEventListener("click", () => {
+        const idCell = row.querySelector("td:nth-child(2)");
+        if (!idCell) return;
+        const empId = idCell.textContent.trim();
+        selectEmployeeForAI(empId, row);
+      });
+    });
   }
 
   // 12. View Rendering - CONFIGURATION
+  const toggleApiKeyBtn = document.getElementById("toggle-api-key");
+  if (toggleApiKeyBtn) {
+    toggleApiKeyBtn.addEventListener("click", () => {
+      const input = document.getElementById("cfg-gemini-key");
+      const icon = toggleApiKeyBtn.querySelector("i");
+      if (input.type === "password") {
+        input.type = "text";
+        icon.setAttribute("data-lucide", "eye-off");
+      } else {
+        input.type = "password";
+        icon.setAttribute("data-lucide", "eye");
+      }
+      if (window.lucide) lucide.createIcons();
+    });
+  }
+
   const formConfig = document.getElementById("form-config");
   if (formConfig) {
     formConfig.addEventListener("submit", (e) => {
@@ -958,6 +1011,22 @@ document.addEventListener("DOMContentLoaded", () => {
           console.error("Error al cargar reglas:", err);
           showToast("Error al abrir explorador de archivos para reglas.", "error");
         });
+    });
+  }
+
+  // Toggle Gemini API Key Visibility
+  const btnToggleKeyVisibility = document.getElementById("btn-toggle-key-visibility");
+  const cfgGeminiKeyInput = document.getElementById("cfg-gemini-key");
+  if (btnToggleKeyVisibility && cfgGeminiKeyInput) {
+    btnToggleKeyVisibility.addEventListener("click", () => {
+      const isPassword = cfgGeminiKeyInput.type === "password";
+      cfgGeminiKeyInput.type = isPassword ? "text" : "password";
+      
+      const icon = btnToggleKeyVisibility.querySelector("i");
+      if (icon) {
+        icon.setAttribute("data-lucide", isPassword ? "eye-off" : "eye");
+        if (window.lucide) lucide.createIcons();
+      }
     });
   }
 
@@ -1301,5 +1370,362 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 17. Initialize Application
   loadState();
+
+  // 18. AI Explainer Sidebar Integration
+  let currentAIEmployeeId = null;
+  let aiChatHistory = [];
+
+  const closeSidebarBtn = document.getElementById("btn-close-ai-sidebar");
+  if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener("click", closeAISidebar);
+  }
+
+  const aiChatInputElement = document.getElementById("ai-chat-input");
+  const aiChatSendBtn = document.getElementById("btn-ai-chat-send");
+  if (aiChatSendBtn && aiChatInputElement) {
+    aiChatSendBtn.addEventListener("click", sendAIChatMessage);
+    aiChatInputElement.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        sendAIChatMessage();
+      }
+    });
+  }
+
+  function selectEmployeeForAI(empId, rowElement) {
+    // If already selected, do nothing
+    if (currentAIEmployeeId === empId) return;
+
+    // Highlight row
+    const tbody = document.getElementById("prenomina-table-body");
+    if (tbody) {
+      tbody.querySelectorAll("tr").forEach(tr => tr.classList.remove("selected-row"));
+    }
+    if (rowElement) {
+      rowElement.classList.add("selected-row");
+    }
+
+    currentAIEmployeeId = empId;
+    aiChatHistory = []; // Reset history
+
+    const sidebar = document.getElementById("prenomina-ai-sidebar");
+    const nameDiv = document.getElementById("ai-collab-name");
+    const detailsDiv = document.getElementById("ai-collab-details");
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    const chatInput = document.getElementById("ai-chat-input");
+    const chatSendBtn = document.getElementById("btn-ai-chat-send");
+    const badge = document.getElementById("ai-rules-badge");
+
+    if (sidebar) sidebar.classList.add("active");
+
+    const emp = state.employees.find(e => e.id === empId);
+    if (emp) {
+      if (nameDiv) nameDiv.textContent = emp.nombre || "Colaborador sin Nombre";
+      if (detailsDiv) detailsDiv.textContent = `Cód: ${emp.id} | Ingreso: ${emp.ingreso || '-'} | SD: $${formatNumber(emp.salario_diario)}`;
+    } else {
+      if (nameDiv) nameDiv.textContent = `Colaborador ${empId}`;
+      if (detailsDiv) detailsDiv.textContent = `Cód: ${empId}`;
+    }
+
+    if (messagesDiv) {
+      messagesDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; padding: 2rem;">
+          <div class="ai-typing-indicator">
+            <div class="ai-typing-dot"></div>
+            <div class="ai-typing-dot"></div>
+            <div class="ai-typing-dot"></div>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Analizando datos del colaborador y generando desglose...</p>
+        </div>
+      `;
+    }
+
+    if (chatInput) {
+      chatInput.disabled = true;
+      chatInput.value = "";
+    }
+    if (chatSendBtn) chatSendBtn.disabled = true;
+
+    // Load initial explanation
+    fetch("/api/payroll/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        employee_id: empId,
+        chat_history: [],
+        new_message: ""
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          if (messagesDiv) {
+            messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: ${data.error}</p></div>`;
+          }
+          return;
+        }
+
+        // Set rules badge
+        if (badge) {
+          if (data.offline) {
+            badge.textContent = "Offline / Local";
+            badge.className = "badge rules-badge-offline";
+          } else if (data.rules_source === "custom") {
+            badge.textContent = "Reglas Empresa";
+            badge.className = "badge rules-badge-custom";
+          } else {
+            badge.textContent = "Reglas Oficiales LFT";
+            badge.className = "badge rules-badge-official";
+          }
+        }
+
+        if (messagesDiv) {
+          messagesDiv.innerHTML = "";
+        }
+        appendAssistantMessage(data.response);
+
+        if (chatInput) chatInput.disabled = false;
+        if (chatSendBtn) chatSendBtn.disabled = false;
+        if (chatInput) chatInput.focus();
+        
+        if (window.lucide) lucide.createIcons();
+      })
+      .catch(err => {
+        console.error("Error fetching explanation:", err);
+        if (messagesDiv) {
+          messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error de conexión al obtener la explicación.</p></div>`;
+        }
+      });
+  }
+
+  function appendAssistantMessage(text) {
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    if (!messagesDiv) return;
+    
+    const formatted = formatMarkdown(text);
+    const msgElement = document.createElement("div");
+    msgElement.className = "chat-message assistant";
+    msgElement.innerHTML = formatted;
+    messagesDiv.appendChild(msgElement);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    aiChatHistory.push({ role: "model", text: text });
+  }
+
+  function appendUserMessage(text) {
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    if (!messagesDiv) return;
+    
+    const msgElement = document.createElement("div");
+    msgElement.className = "chat-message user";
+    msgElement.innerHTML = `<p>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+    messagesDiv.appendChild(msgElement);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    aiChatHistory.push({ role: "user", text: text });
+  }
+
+  function sendAIChatMessage() {
+    const chatInput = document.getElementById("ai-chat-input");
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    const chatSendBtn = document.getElementById("btn-ai-chat-send");
+    
+    if (!chatInput) return;
+    const msgText = chatInput.value.trim();
+
+    if (!msgText || !currentAIEmployeeId) return;
+
+    appendUserMessage(msgText);
+    chatInput.value = "";
+    
+    chatInput.disabled = true;
+    if (chatSendBtn) chatSendBtn.disabled = true;
+    
+    const loadingIndicator = document.createElement("div");
+    loadingIndicator.id = "ai-typing-loader";
+    loadingIndicator.className = "chat-message assistant";
+    loadingIndicator.innerHTML = `
+      <div class="ai-typing-indicator">
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+      </div>
+    `;
+    if (messagesDiv) {
+      messagesDiv.appendChild(loadingIndicator);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    fetch("/api/payroll/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        employee_id: currentAIEmployeeId,
+        chat_history: aiChatHistory.slice(0, -1), // Everything except user newly appended message to avoid duplication in history mapping
+        new_message: msgText
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        const loader = document.getElementById("ai-typing-loader");
+        if (loader) loader.remove();
+
+        if (data.error) {
+          if (messagesDiv) {
+            messagesDiv.innerHTML += `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: ${data.error}</p></div>`;
+          }
+          return;
+        }
+
+        appendAssistantMessage(data.response);
+
+        if (data.applied_changes) {
+          showToast("Se aplicaron las incidencias solicitadas a través de la IA.", "success");
+          state.selectedIncidenceEmployeeId = currentAIEmployeeId;
+          loadState().then(() => {
+            selectIncidenceEmployee(currentAIEmployeeId);
+          });
+        }
+        
+        chatInput.disabled = false;
+        if (chatSendBtn) chatSendBtn.disabled = false;
+        chatInput.focus();
+        
+        if (window.lucide) lucide.createIcons();
+      })
+      .catch(err => {
+        console.error("Error sending chat query:", err);
+        const loader = document.getElementById("ai-typing-loader");
+        if (loader) loader.remove();
+        if (messagesDiv) {
+          messagesDiv.innerHTML += `<div class="chat-message assistant" style="color: var(--danger);"><p>Error de conexión al enviar tu pregunta.</p></div>`;
+        }
+        chatInput.disabled = false;
+        if (chatSendBtn) chatSendBtn.disabled = false;
+      });
+  }
+
+  function closeAISidebar() {
+    currentAIEmployeeId = null;
+    aiChatHistory = [];
+    
+    const tbody = document.getElementById("prenomina-table-body");
+    if (tbody) {
+      tbody.querySelectorAll("tr").forEach(tr => tr.classList.remove("selected-row"));
+    }
+
+    const sidebar = document.getElementById("prenomina-ai-sidebar");
+    if (sidebar) sidebar.classList.remove("active");
+
+    const nameDiv = document.getElementById("ai-collab-name");
+    const detailsDiv = document.getElementById("ai-collab-details");
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    if (nameDiv) nameDiv.textContent = "Selecciona un colaborador";
+    if (detailsDiv) detailsDiv.textContent = "Haz clic en una fila para ver el desglose";
+    if (messagesDiv) {
+      messagesDiv.innerHTML = `
+        <div class="ai-chat-placeholder">
+          <i data-lucide="message-square" style="width: 32px; height: 32px; margin-bottom: 8px; color: var(--text-muted); opacity: 0.5;"></i>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">Haz clic en cualquier colaborador de la tabla de la izquierda para ver la explicación matemática detallada de su nómina.</p>
+        </div>
+      `;
+    }
+    
+    if (aiChatInputElement) {
+      aiChatInputElement.disabled = true;
+      aiChatInputElement.value = "";
+    }
+    if (aiChatSendBtn) aiChatSendBtn.disabled = true;
+    
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function formatMarkdown(text) {
+    if (!text) return "";
+    
+    let html = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    html = parseMarkdownTables(html);
+
+    html = html.replace(/^### (.*?)$/gm, '<h4 style="margin: 10px 0 5px 0; font-size: 0.95rem; font-weight: 600; color: #fff;">$1</h4>');
+    html = html.replace(/^#### (.*?)$/gm, '<h5 style="margin: 8px 0 4px 0; font-size: 0.88rem; font-weight: 600; color: #fff;">$1</h5>');
+    
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    let inList = false;
+    const lines = html.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith("- ") || line.startsWith("* ")) {
+        const content = line.substring(2);
+        if (!inList) {
+          lines[i] = '<ul style="margin: 5px 0; padding-left: 15px; list-style-type: disc;">\n<li style="margin-bottom: 3px;">' + content + '</li>';
+          inList = true;
+        } else {
+          lines[i] = '<li style="margin-bottom: 3px;">' + content + '</li>';
+        }
+      } else {
+        if (inList) {
+          lines[i] = '</ul>\n' + (line ? '<p style="margin: 0 0 8px 0;">' + line + '</p>' : '');
+          inList = false;
+        } else if (line) {
+          if (line.startsWith("<h4") || line.startsWith("<h5") || line.startsWith("<table") || line.startsWith("<thead") || line.startsWith("<tbody") || line.startsWith("<tr") || line.startsWith("<th") || line.startsWith("<td") || line.startsWith("</table>") || line.startsWith("$$\n") || line.startsWith("$$") || line.startsWith("<div") || line.startsWith("</div") || line.startsWith("<hr")) {
+            lines[i] = line;
+          } else {
+            lines[i] = '<p style="margin: 0 0 8px 0;">' + line + '</p>';
+          }
+        }
+      }
+    }
+    if (inList) {
+      lines.push('</ul>');
+    }
+    html = lines.join("\n");
+
+    html = html.replace(/\$\$\n*([\s\S]*?)\n*\$\$/g, '<div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--panel-border); padding: 8px; border-radius: 8px; font-family: monospace; text-align: center; margin: 8px 0; color: var(--secondary); font-size: 0.85rem;">$1</div>');
+    html = html.replace(/\$([^\$\n]+)\$/g, '<code style="font-family: monospace; background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 4px; color: var(--secondary); font-size: 0.8rem;">$1</code>');
+    html = html.replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--panel-border); margin: 12px 0;">');
+
+    return html;
+  }
+
+  function parseMarkdownTables(text) {
+    const lines = text.split("\n");
+    let inTable = false;
+    let tableHtml = "";
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith("|") && line.endsWith("|")) {
+        const cells = line.split("|").slice(1, -1).map(c => c.trim());
+        if (!inTable) {
+          inTable = true;
+          tableHtml = '<table style="width:100%; border-collapse:collapse; margin:10px 0; font-size:0.75rem;">\n';
+          tableHtml += '<thead>\n<tr>\n' + cells.map(c => `<th style="padding:6px; border:1px solid var(--panel-border); background:rgba(255,255,255,0.05); text-align:left; font-weight: 600;">${c}</th>`).join("\n") + '\n</tr>\n</thead>\n<tbody>\n';
+          lines[i] = "";
+        } else {
+          if (cells.every(c => /^:-*:?$/.test(c) || c === "" || c.startsWith("-"))) {
+            lines[i] = "";
+          } else {
+            tableHtml += '<tr>\n' + cells.map(c => `<td style="padding:6px; border:1px solid var(--panel-border); text-align:left;">${c}</td>`).join("\n") + '\n</tr>\n';
+            lines[i] = "";
+          }
+        }
+      } else {
+        if (inTable) {
+          tableHtml += '</tbody>\n</table>\n';
+          lines[i] = tableHtml + "\n" + lines[i];
+          inTable = false;
+        }
+      }
+    }
+    if (inTable) {
+      tableHtml += '</tbody>\n</table>\n';
+      lines.push(tableHtml);
+    }
+    return lines.filter(l => l !== "").join("\n");
+  }
 
 });

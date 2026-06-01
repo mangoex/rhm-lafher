@@ -1,7 +1,7 @@
 {
   "uma_cell": "S3",
   "period": "16 al 30 Abr 2026",
-  "gemini_api_key": "AIzaSyAGHc1yWJoFvq7wyTQ0qNBT1IpY4a_THoI",
+  "gemini_api_key": "AIzaSyD9d4jbv2hL04B9zuIOv2-cv8QS7xXNUuE",
   "pending_clarifications": [],
   "columns": [
     {
@@ -305,10 +305,10 @@
       "index": 28,
       "letter": "AB",
       "header": "SUELDO BRUTO MENSUAL ",
-      "field": "bruto_mensual_neto",
+      "field": "bruto_mensual",
       "type": "float",
       "category": "calculated",
-      "label": "Sueldo Bruto Mensual Neto",
+      "label": "Sueldo Bruto Mensual",
       "editable": false,
       "incidence_editable": false
     },
@@ -316,10 +316,10 @@
       "index": 29,
       "letter": "AC",
       "header": "SUELDO BRUTO QUINCENAL ",
-      "field": "neto_quincenal",
+      "field": "bruto_quincenal",
       "type": "float",
       "category": "calculated",
-      "label": "Sueldo Neto Quincenal",
+      "label": "Sueldo Bruto Quincenal",
       "editable": false,
       "incidence_editable": false
     },

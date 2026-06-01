@@ -351,10 +351,13 @@ def get_field_letter(schema, field_name):
     return ""
 
 def get_gemini_api_key(schema):
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or schema.get("gemini_api_key", "")
+    key = schema.get("gemini_api_key", "").strip()
+    if key:
+        return key
+    return os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
 
 def call_gemini_api(prompt, api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
     req_data = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -492,6 +495,23 @@ def heal_schema_locally(current_headers, old_schema):
                 }
                 new_columns.append(new_col)
                 print(f"Locally detected and added column: {h_str or 'VACIA'} (field: {field_name}, category: {category})")
+
+                # If we defaulted to metadata but it could be a monetary field, ask the user
+                if h_str and category == "metadata" and col_type == "string":
+                    if "pending_clarifications" not in updated_schema:
+                        updated_schema["pending_clarifications"] = []
+                    
+                    # Avoid duplicates
+                    if not any(q.get("field") == field_name for q in updated_schema["pending_clarifications"]):
+                        updated_schema["pending_clarifications"].append({
+                            "field": field_name,
+                            "question": f"He detectado una nueva columna '{h_str}'. ¿Cómo debe procesarse en la prenómina?",
+                            "options": [
+                                "Es una Deducción (Descuento)",
+                                "Es una Percepción Adicional",
+                                "Solo es texto informativo"
+                            ]
+                        })
 
     # Sort columns by index
     updated_schema["columns"] = sorted(new_columns, key=lambda x: x["index"])
@@ -715,6 +735,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_config(body)
         elif path_only == "/api/schema/clarify":
             self.save_clarify(body)
+        elif path_only == "/api/payroll/explain":
+            self.explain_payroll(body)
         else:
             self.send_json({"error": "Endpoint not found"}, 404)
 
@@ -810,13 +832,16 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 if "deducción" in answer.lower():
                     col["category"] = "deduction"
                     col["incidence_editable"] = True
+                    col["type"] = "float"
                 elif "percepción" in answer.lower():
                     col["category"] = "others"
                     col["editable"] = True
+                    col["type"] = "float"
                 print(f"Applied clarification for {field}: categorized as {col['category']}")
         
         # Remove from pending list
-        schema["pending_clarifications"] = [q for q in schema["pending_clarifications"] if q["field"] != field]
+        if "pending_clarifications" in schema:
+            schema["pending_clarifications"] = [q for q in schema["pending_clarifications"] if q.get("field") != field]
         save_schema(schema)
         self.send_json({"success": True, "schema": schema})
 
@@ -1191,6 +1216,26 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2"
 
+            # Apply bonuses overrides if present in payload
+            sdi_letter = get_field_letter(schema, "sdi")
+            if "puntualidad" in body:
+                puntualidad_col = get_field_index(schema, "puntualidad")
+                if puntualidad_col:
+                    p_val = body["puntualidad"]
+                    if p_val in ["NO", False, 0, "NO_FORMULA"]:
+                        ws.cell(row=found_row, column=puntualidad_col).value = 0.0
+                    else:
+                        ws.cell(row=found_row, column=puntualidad_col).value = f"={sdi_letter}{found_row}*0.1*$N$3"
+
+            if "asistencia" in body:
+                asistencia_col = get_field_index(schema, "asistencia")
+                if asistencia_col:
+                    a_val = body["asistencia"]
+                    if a_val in ["NO", False, 0, "NO_FORMULA"]:
+                        ws.cell(row=found_row, column=asistencia_col).value = 0.0
+                    else:
+                        ws.cell(row=found_row, column=asistencia_col).value = f"={sdi_letter}{found_row}*0.1*$N$3"
+
             # Save file
             save_workbook_agnostic(wb, excel_path)
             wb.close()
@@ -1268,6 +1313,490 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' está abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e inténtalo de nuevo."}, 500)
         except Exception as e:
             self.send_json({"error": f"Error saving global configuration: {e}"}, 500)
+
+    def explain_payroll(self, body):
+        try:
+            schema = check_and_heal_schema()
+            excel_path = get_excel_path()
+            if not os.path.exists(excel_path):
+                self.send_json({"error": "Database file not found"}, 500)
+                return
+
+            cod = body.get("employee_id")
+            if not cod:
+                self.send_json({"error": "Employee ID is required"}, 400)
+                return
+
+            chat_history = body.get("chat_history", [])
+            new_message = body.get("new_message", "")
+
+            wb_v = load_workbook_agnostic(excel_path, data_only=True)
+            wb_f = load_workbook_agnostic(excel_path, data_only=False)
+            sheet_v = wb_v.active
+            sheet_f = wb_f.active
+
+            # Read dynamic configuration cells
+            uma_cell_coord = schema.get("uma_cell", "S3")
+            vales_pct_cell = schema.get("vales_pct_cell", "P3")
+            dias_mes_cell = schema.get("dias_mes_cell", "N3")
+            fa_pct_cell = schema.get("fa_pct_cell", "L3")
+            aguinaldo_cell = schema.get("aguinaldo_cell", "J3")
+            prima_cell = schema.get("prima_cell", "H3")
+
+            def get_cell_float(sheet, cell, default):
+                val = sheet[cell].value
+                if val is None:
+                    return default
+                try:
+                    return float(str(val).replace(",", "").strip())
+                except:
+                    return default
+
+            uma = get_cell_float(sheet_v, uma_cell_coord, 117.31)
+            vales_pct = get_cell_float(sheet_v, vales_pct_cell, 40.0)
+            dias_mes = get_cell_float(sheet_v, dias_mes_cell, 30.4)
+            fa_pct = get_cell_float(sheet_v, fa_pct_cell, 11.0)
+            aguinaldo = get_cell_float(sheet_v, aguinaldo_cell, 15.0)
+            prima = get_cell_float(sheet_v, prima_cell, 25.0)
+
+            # Find employee row
+            nombre_col = get_field_index(schema, "nombre")
+            id_col = get_field_index(schema, "id")
+
+            headers_row = find_headers_row(sheet_v)
+            row = headers_row + 1
+            found_row = None
+            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+            temp_row_resolved = None
+            if is_temp_id:
+                try:
+                    temp_row_resolved = int(cod.split("_")[1])
+                except ValueError:
+                    pass
+
+            while True:
+                nombre_val = sheet_v.cell(row=row, column=nombre_col).value
+                cod_val = sheet_v.cell(row=row, column=id_col).value
+                
+                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                    break
+                if nombre_val is None and cod_val is None:
+                    break
+                if temp_row_resolved == row:
+                    found_row = row
+                    break
+                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
+                    found_row = row
+                    break
+                row += 1
+
+            if not found_row:
+                self.send_json({"error": f"Colaborador con Cód. {cod} no encontrado"}, 404)
+                wb_v.close()
+                wb_f.close()
+                return
+
+            def val_to_float(cell_val):
+                if cell_val is None: return 0.0
+                v = str(cell_val).replace(",", "").strip()
+                if v in ["-", "", "None"]: return 0.0
+                try: return float(v)
+                except ValueError: return 0.0
+
+            # Read employee data
+            emp_data = {}
+            for col in schema["columns"]:
+                f = col["field"]
+                t = col["type"]
+                val = sheet_v.cell(row=found_row, column=col["index"]).value
+                if t == "float":
+                    emp_data[f] = val_to_float(val)
+                elif t == "boolean":
+                    emp_data[f] = str(val or "").upper() == "SI"
+                else:
+                    emp_data[f] = str(val or "").strip()
+
+            # Resolve absences (faltas)
+            faltas = 0
+            neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+            if neto_quincenal_col:
+                formula_ag = sheet_f.cell(row=found_row, column=neto_quincenal_col).value
+                if isinstance(formula_ag, str) and "/15*" in formula_ag:
+                    try:
+                        parts = formula_ag.split("*")
+                        days_worked = int(parts[-1])
+                        faltas = 15 - days_worked
+                    except:
+                        pass
+
+            wb_v.close()
+            wb_f.close()
+
+            # Basic math fields
+            nombre = emp_data.get("nombre", "Sin Nombre")
+            salario_diario = emp_data.get("salario_diario", 0.0)
+            fi = emp_data.get("factor_integracion", 1.0493)
+            sdi = emp_data.get("sdi", 0.0)
+            sueldo_nominal = emp_data.get("sueldo_nominal", 0.0)
+            puntualidad = emp_data.get("puntualidad", 0.0)
+            asistencia = emp_data.get("asistencia", 0.0)
+            vales_despensa = emp_data.get("vales_despensa", 0.0)
+            fondo_ahorro = emp_data.get("fondo_ahorro", 0.0)
+            fondo_ahorro_activo = "SI" if emp_data.get("fondo_ahorro_activo", False) else "NO"
+            percepcion_sueldos = emp_data.get("percepcion_sueldos", 0.0)
+            
+            asimilados = emp_data.get("asimilados", 0.0)
+            gasolina = emp_data.get("gasolina", 0.0)
+            socio = emp_data.get("socio", 0.0)
+            efectivo = emp_data.get("efectivo", 0.0)
+            facturado = emp_data.get("facturado", 0.0)
+            deuda_carro = emp_data.get("deuda_carro", 0.0)
+            total_otros = asimilados + gasolina + socio + efectivo + facturado
+            bruto_mensual = percepcion_sueldos + total_otros
+            bruto_quincenal = bruto_mensual / 2
+            
+            descuento_faltas = (bruto_quincenal / 15.0) * faltas if faltas > 0 else 0.0
+            descuento_adicional = emp_data.get("descuento_adicional", 0.0)
+            neto_quincenal = max(0.0, bruto_quincenal - descuento_faltas - descuento_adicional - deuda_carro)
+
+            # Determine entry and years completed
+            ingreso_str = emp_data.get("ingreso", "")
+            years_of_labores = 0.0
+            vac = 12
+            if ingreso_str:
+                try:
+                    ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
+                    active_dt = datetime(2026, 4, 30)
+                    years_of_labores = (active_dt - ingreso_dt).days / 365.25
+                    y = max(1, int(years_of_labores))
+                    if y <= 1: vac = 12
+                    elif y == 2: vac = 14
+                    elif y == 3: vac = 16
+                    elif y == 4: vac = 18
+                    elif y == 5: vac = 20
+                    elif y <= 10: vac = 22
+                    elif y <= 15: vac = 24
+                    elif y <= 20: vac = 26
+                    else: vac = 28
+                except:
+                    pass
+
+            # Check if custom company rules are defined
+            custom_rules = schema.get("payroll_rules", "").strip()
+            rules_source = "custom" if custom_rules else "official"
+            
+            if custom_rules:
+                rules_to_use = f"Reglas privadas/particulares de la empresa:\n{custom_rules}"
+            else:
+                rules_to_use = (
+                    "No se configuraron reglas privadas de la empresa. Se aplican las reglas contables oficiales estándar de la LFT (Ley Federal del Trabajo) en México:\n"
+                    "- Factor de Integración = 1 + (Aguinaldo / 365) + (Vacaciones * Prima_Vacacional / 365)\n"
+                    "- Salario Diario Integrado (SDI) = Salario Diario * Factor de Integración\n"
+                    "- Sueldo Nominal Mensual = Salario Diario * Días del Mes (Row 3)\n"
+                    "- Premios de Asistencia y Puntualidad: 10% del SDI * Días del Mes cada uno\n"
+                    "- Vales de Despensa = UMA * Vales% * Días del Mes\n"
+                    "- Fondo de Ahorro = Sueldo Nominal * FA% (si aplica)\n"
+                    "- Sueldo Bruto Mensual = Total Percepciones + Otros Ingresos\n"
+                    "- Sueldo Bruto Quincenal normal = Bruto Mensual / 2\n"
+                    "- Descuento de Faltas proporcional = (Bruto Quincenal / 15) * Faltas\n"
+                    "- Sueldo Neto Quincenal = Bruto Quincenal - Descuento de Faltas - Deducciones"
+                )
+
+            # Generate local markdown breakdown as fallback
+            fa_status = f"Sí, activo ({fa_pct:.0f}%): Sueldo Nominal $\\times$ {fa_pct:.1f}% = ${fondo_ahorro:,.2f}" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
+            fi_aguinaldo = aguinaldo / 365.0
+            fi_prima = (vac * (prima / 100.0)) / 365.0
+            
+            local_desglose = f"""### 🤖 Explicación del Cálculo de Nómina Local (Offline)
+
+*Nota: No hay una clave de API de Gemini válida configurada, por lo que se muestra el cálculo matemático local.*
+
+**Colaborador:** {nombre} (Código: {cod})  
+**Fecha de Ingreso:** {ingreso_str}  
+**Antigüedad:** {years_of_labores:.2f} años ({vac} días de vacaciones según LFT)  
+
+---
+
+#### 1. Esquema Nominal IMSS (Base Fiscal)
+- **Factor de Integración (FI):**
+  $$\\text{{FI}} = 1 + \\frac{{\\text{{Aguinaldo}} ({aguinaldo:.0f} \\text{{ días}})}}{{365}} + \\frac{{\\text{{Vacaciones}} ({vac} \\text{{ días}}) \\times \\text{{Prima}} ({prima:.0f}\\%)}}{{365}}$$
+  $$\\text{{FI}} = 1 + {fi_aguinaldo:.4f} + {fi_prima:.4f} = {fi:.4f}$$
+- **Salario Diario Integrado (SDI):**
+  $$\\text{{SDI}} = \\text{{Salario Diario}} (\\${salario_diario:,.2f}) \\times \\text{{FI}} ({fi:.4f}) = \\${sdi:,.2f}$$
+- **Sueldo Nominal Mensual:**
+  $$\\text{{Sueldo Nominal}} = \\text{{Salario Diario}} (\\${salario_diario:,.2f}) \\times \\text{{Días Mes}} ({dias_mes:.1f}) = \\${sueldo_nominal:,.2f}$$
+- **Premios (10% de SDI):**
+  - **Puntualidad:** $\\${puntualidad:,.2f}$
+  - **Asistencia:** $\\${asistencia:,.2f}$
+- **Vales de Despensa:**
+  $$\\text{{Vales}} = \\text{{UMA}} (\\${uma:,.2f}) \\times \\text{{Vales\\%}} ({vales_pct:.0f}\\%) \\times \\text{{Días Mes}} ({dias_mes:.1f}) = \\${vales_despensa:,.2f}$$
+- **Fondo de Ahorro:** {fa_status}
+- **Total Percepciones Mensuales:** $\\${percepcion_sueldos:,.2f}$
+
+---
+
+#### 2. Otros Ingresos (Esquema Mixto)
+- Asimilados: $\\${asimilados:,.2f}$ (Mensual)
+- Gasolina: $\\${gasolina:,.2f}$ (Mensual)
+- Pago Socio: $\\${socio:,.2f}$ (Mensual)
+- Efectivo: $\\${efectivo:,.2f}$ (Mensual)
+- Facturado: $\\${facturado:,.2f}$ (Mensual)
+- **Total Otros Ingresos:** $\\${total_otros:,.2f}$ (Mensual)
+
+---
+
+#### 3. Cálculo de Prenómina Quincenal
+- **Sueldo Bruto Mensual (Total):** $\\${bruto_mensual:,.2f}$
+- **Sueldo Bruto Quincenal:** $\\${bruto_quincenal:,.2f}$
+- **Ajustes / Descuentos por Incidencias:**
+  - **Faltas ({faltas} días):** Descuento de $\\${descuento_faltas:,.2f}$ (basado en la fórmula: $\\frac{{\\text{{Bruto Quincenal}}}}{{15}} \\times {faltas}$)
+  - **Descuento Adicional:** $\\${descuento_adicional:,.2f}$
+  - **Deuda Carro (Deducción):** $\\${deuda_carro:,.2f}$
+- **Sueldo Neto Quincenal Final:**
+  $$\\text{{Neto}} = \\text{{Bruto Quincenal}} (\\${bruto_quincenal:,.2f}) - \\text{{Faltas}} (\\${descuento_faltas:,.2f}) - \\text{{Descuento Adicional}} (\\${descuento_adicional:,.2f}) - \\text{{Deuda Carro}} (\\${deuda_carro:,.2f}) = \\${neto_quincenal:,.2f}$$
+"""
+
+            # Try to use Gemini API if key is present
+            api_key = get_gemini_api_key(schema)
+            if not api_key:
+                self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
+                return
+
+            # Build Gemini Prompt
+            system_prompt = f"""Eres un experto en contabilidad de nómina mexicana y leyes laborales de la LFT (Ley Federal del Trabajo).
+Tu tarea es explicar de manera clara, didáctica y detallada el cálculo de la prenómina quincenal de un colaborador, basándote en las siguientes constantes de configuración del sistema y en las reglas de cálculo de la empresa.
+
+CONSTANTES DE CONFIGURACIÓN DEL SISTEMA:
+- UMA (2026): ${uma:.2f}
+- % exento de Vales de Despensa: {vales_pct}% de la UMA
+- Días promedio del mes: {dias_mes}
+- % Fondo de Ahorro: {fa_pct}%
+- Días mínimos de Aguinaldo: {aguinaldo}
+- % Prima Vacacional: {prima}%
+
+REGLAS DE CÁLCULO DE LA EMPRESA APLICADAS:
+{rules_to_use}
+
+Cuando el usuario pida la explicación inicial o te pregunte sobre el colaborador, detalla paso a paso las operaciones matemáticas y cómo se llega a cada resultado.
+Usa Markdown y tablas limpias para presentar la información. Presenta los números con formato de moneda.
+
+INSTRUCCIONES DE ACTUALIZACIÓN DE BASE DE DATOS (INCIDENCIAS):
+El usuario no solo te hará preguntas, sino que también puede darte instrucciones directas para modificar la prenómina de este colaborador en particular. Por ejemplo: "tuvo 2 faltas", "quítale el bono de puntualidad", "descuéntale $500 adicionales", "restablecer bono de asistencia", etc.
+Si detectas que el usuario te está pidiendo aplicar cambios o incidencias al colaborador actual, debes realizar lo siguiente:
+1. Explica brevemente en tu respuesta que vas a aplicar los cambios indicados en el sistema (por ejemplo: "Entendido, procedo a registrar 2 faltas y suspender el premio de puntualidad en el archivo Excel...").
+2. Incluye al final de tu respuesta (después de todo el texto descriptivo) un bloque de código JSON con formato exacto que contenga las actualizaciones. Debe ser exactamente de la siguiente forma:
+
+```json
+{{
+  "apply_changes": {{
+    "faltas": 2, // Número entero de faltas a registrar (0 a 15), null si no cambia o si se quitan las faltas (poner 0 si se quitan)
+    "descuento_adicional": 500.0, // Monto de descuento adicional (float), null si no cambia (poner 0 si se quita)
+    "puntualidad": "NO", // "NO" para suspenderlo (poner 0), "SI" para activarlo con su fórmula normal, null si no cambia
+    "asistencia": "NO", // "NO" para suspenderlo (poner 0), "SI" para activarlo con su fórmula normal, null si no cambia
+    "observaciones": "Descuento de 2 faltas y bono de puntualidad por inasistencia." // Breve justificación que se escribirá en observaciones, null si no cambia
+  }}
+}}
+```
+
+IMPORTANTE:
+- Solo incluye este bloque JSON si el mensaje del usuario representa una instrucción clara de cambio de datos. Si solo es una consulta de información o una pregunta general, NO incluyes el bloque "apply_changes".
+- El bloque JSON debe estar en una sección separada al final con la sintaxis de código de markdown de triple backtick.
+"""
+
+            # Build contents payload
+            contents = []
+            
+            # Map input chat_history to contents
+            for msg in chat_history:
+                role = msg.get("role")
+                text = msg.get("text", "")
+                if text:
+                    contents.append({
+                        "role": "user" if role == "user" else "model",
+                        "parts": [{"text": text}]
+                    })
+
+            # Handle user request
+            if new_message:
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": f"Pregunta sobre {nombre} ({cod}): {new_message}"}]
+                })
+            else:
+                collab_details = f"""Por favor, genera la explicación inicial y detallada del cálculo de prenómina para este colaborador:
+DATOS DEL COLABORADOR:
+- Nombre: {nombre}
+- Código: {cod}
+- Salario Diario: ${salario_diario:,.2f}
+- Fecha de Ingreso: {ingreso_str}
+- Antigüedad: {years_of_labores:.2f} años ({vac} días de vacaciones según LFT)
+- Cuenta con Fondo de Ahorro: {fondo_ahorro_activo}
+- Faltas registradas en la quincena: {faltas}
+
+VALORES REGISTRADOS EN EXCEL:
+- Salario Diario: ${salario_diario:,.2f}
+- Factor de Integración: {fi:.4f}
+- Salario Diario Integrado (SDI): ${sdi:,.2f}
+- Sueldo Nominal Mensual: ${sueldo_nominal:,.2f}
+- Premio de Puntualidad Mensual: ${puntualidad:,.2f}
+- Premio de Asistencia Mensual: ${asistencia:,.2f}
+- Vales de Despensa Mensual: ${vales_despensa:,.2f}
+- Fondo de Ahorro Mensual: ${fondo_ahorro:,.2f}
+- Total Percepciones Mensual: ${percepcion_sueldos:,.2f}
+- Asimilados Mensual: ${asimilados:,.2f}
+- Gasolina Mensual: ${gasolina:,.2f}
+- Pago Socio Mensual: ${socio:,.2f}
+- Efectivo Mensual: ${efectivo:,.2f}
+- Facturado Mensual: ${facturado:,.2f}
+- Abono Carro (Deducción) Mensual: ${deuda_carro:,.2f}
+- Total Otros Ingresos Mensual: ${total_otros:,.2f}
+- Sueldo Bruto Mensual: ${bruto_mensual:,.2f}
+- Sueldo Bruto Quincenal base: ${bruto_quincenal:,.2f}
+- Descuento por Faltas en Quincena: ${descuento_faltas:,.2f}
+- Descuento Adicional en Quincena: ${descuento_adicional:,.2f}
+- Sueldo Neto Quincenal Final: ${neto_quincenal:,.2f}
+"""
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": collab_details}]
+                })
+
+            # Call Gemini Chat API
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+            req_data = {
+                "contents": contents,
+                "systemInstruction": {
+                    "parts": [{"text": system_prompt}]
+                }
+            }
+            headers = {"Content-Type": "application/json"}
+            data = json.dumps(req_data).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            
+            try:
+                with urllib.request.urlopen(req, timeout=40) as response:
+                    res_body = response.read().decode("utf-8")
+                    res_json = json.loads(res_body)
+                    candidate = res_json["candidates"][0]
+                    text = candidate["content"]["parts"][0]["text"]
+                    
+                    # Parse apply_changes from response text
+                    applied_changes = False
+                    try:
+                        import re
+                        # Robustly try to find a JSON block even if missing ```json
+                        json_str = None
+                        m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+                        if m:
+                            json_str = m.group(1).strip()
+                        else:
+                            # Try to find { "apply_changes": ... } inside the text directly
+                            m_direct = re.search(r"(\{.*?\"apply_changes\".*?\})", text, re.DOTALL)
+                            if m_direct:
+                                json_str = m_direct.group(1).strip()
+                        
+                        if json_str:
+                            changes_data = json.loads(json_str)
+                            if "apply_changes" in changes_data:
+                                changes = changes_data["apply_changes"]
+                                
+                                # Open workbook to apply changes
+                                wb = load_workbook_agnostic(excel_path, data_only=False)
+                                ws = wb.active
+                                
+                                # Find employee row
+                                nombre_col = get_field_index(schema, "nombre")
+                                id_col = get_field_index(schema, "id")
+                                headers_row = find_headers_row(ws)
+                                row = headers_row + 1
+                                found_row = None
+                                is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+                                temp_row_resolved = None
+                                if is_temp_id:
+                                    try: temp_row_resolved = int(cod.split("_")[1])
+                                    except ValueError: pass
+
+                                while True:
+                                    nombre_val = ws.cell(row=row, column=nombre_col).value
+                                    cod_val = ws.cell(row=row, column=id_col).value
+                                    if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                                        break
+                                    if nombre_val is None and cod_val is None:
+                                        break
+                                    if temp_row_resolved == row:
+                                        found_row = row
+                                        break
+                                    elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
+                                        found_row = row
+                                        break
+                                    row += 1
+
+                                if found_row:
+                                    # 1. Update Faltas
+                                    faltas = changes.get("faltas")
+                                    neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+                                    bruto_mensual_neto_letter = get_field_letter(schema, "bruto_mensual_neto")
+                                    if faltas is not None and neto_quincenal_col:
+                                        try:
+                                            faltas = int(faltas)
+                                            if faltas > 0:
+                                                dias_laborados = 15 - faltas
+                                                ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2/15*{dias_laborados}"
+                                            else:
+                                                ws.cell(row=found_row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{found_row}/2"
+                                        except ValueError:
+                                            pass
+
+                                    # 2. Update Descuento Adicional
+                                    desc = changes.get("descuento_adicional")
+                                    descuento_col = get_field_index(schema, "descuento_adicional")
+                                    if desc is not None and descuento_col:
+                                        try:
+                                            desc = float(desc)
+                                            ws.cell(row=found_row, column=descuento_col).value = desc if desc > 0 else None
+                                        except ValueError:
+                                            pass
+
+                                    # 3. Update Observaciones
+                                    obs = changes.get("observaciones")
+                                    observaciones_col = get_field_index(schema, "observaciones")
+                                    if obs is not None and observaciones_col:
+                                        ws.cell(row=found_row, column=observaciones_col).value = str(obs) if obs else None
+
+                                    # 4. Update Puntualidad
+                                    punt = changes.get("puntualidad")
+                                    puntualidad_col = get_field_index(schema, "puntualidad")
+                                    sdi_letter = get_field_letter(schema, "sdi")
+                                    if punt is not None and puntualidad_col:
+                                        if str(punt).upper() in ["NO", "NO_FORMULA"] or punt is False or punt == 0:
+                                            ws.cell(row=found_row, column=puntualidad_col).value = 0.0
+                                        elif str(punt).upper() in ["SI", "FORMULA"] or punt is True:
+                                            ws.cell(row=found_row, column=puntualidad_col).value = f"={sdi_letter}{found_row}*0.1*$N$3"
+
+                                    # 5. Update Asistencia
+                                    asist = changes.get("asistencia")
+                                    asistencia_col = get_field_index(schema, "asistencia")
+                                    if asist is not None and asistencia_col:
+                                        if str(asist).upper() in ["NO", "NO_FORMULA"] or asist is False or asist == 0:
+                                            ws.cell(row=found_row, column=asistencia_col).value = 0.0
+                                        elif str(asist).upper() in ["SI", "FORMULA"] or asist is True:
+                                            ws.cell(row=found_row, column=asistencia_col).value = f"={sdi_letter}{found_row}*0.1*$N$3"
+
+                                    save_workbook_agnostic(wb, excel_path)
+                                    applied_changes = True
+                                wb.close()
+                    except Exception as parse_e:
+                        print("Error parsing and applying changes from Gemini:", parse_e)
+
+                    self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes})
+            except Exception as e:
+                print("Gemini API call failed, falling back to local:", e)
+                self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("Error in explain_payroll endpoint:\n", tb)
+            self.send_json({"error": f"Error explaining payroll: {e}", "details": tb}, 500)
 
 if __name__ == "__main__":
     socketserver.TCPServer.allow_reuse_address = True

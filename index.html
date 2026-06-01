@@ -401,8 +401,13 @@
             </div>
             <div class="form-group full-width" style="grid-column: 1 / -1; margin-top: 1rem; border-top: 1px dashed var(--panel-border); padding-top: 1rem;">
               <label for="cfg-gemini-key">Clave de API de Gemini (Autoguardado Local)</label>
-              <input type="password" id="cfg-gemini-key" placeholder="AIzaSy...">
-              <small style="color: var(--text-muted);">Requerida para detectar cambios estructurales en el Excel y auto-sanar la base de datos.</small>
+              <div style="position: relative; display: flex; align-items: center;">
+                <input type="password" id="cfg-gemini-key" placeholder="AIzaSy..." style="padding-right: 40px; width: 100%;">
+                <button type="button" id="toggle-api-key" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--text-muted);">
+                  <i data-lucide="eye"></i>
+                </button>
+              </div>
+              <small style="color: var(--text-muted);">Requerida para que el Agente AI asista en el cálculo de prenómina.</small>
             </div>
           </div>
           <button type="submit" class="btn btn-primary">
