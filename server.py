@@ -709,6 +709,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.select_file()
         elif path_only == "/api/select-rules-file":
             self.select_rules_file()
+        elif path_only == "/api/download-excel":
+            self.download_excel()
         else:
             super().do_GET()
 
@@ -774,6 +776,26 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def get_schema(self):
         schema = check_and_heal_schema()
         self.send_json(schema)
+
+    def download_excel(self):
+        try:
+            excel_path = get_excel_path()
+            if not excel_path or not os.path.exists(excel_path):
+                self.send_json({"error": f"Excel file not found at: {excel_path}"}, 404)
+                return
+            
+            filename = os.path.basename(excel_path)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(os.path.getsize(excel_path)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            
+            with open(excel_path, "rb") as f:
+                self.wfile.write(f.read())
+        except Exception as e:
+            self.send_json({"error": f"Error downloading file: {str(e)}"}, 500)
 
     def select_file(self):
         path = select_file_via_dialog()

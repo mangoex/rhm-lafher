@@ -1329,6 +1329,19 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const btnDownloadExcel = document.getElementById("btn-download-excel");
+  if (btnDownloadExcel) {
+    btnDownloadExcel.addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.href = "/api/download-excel";
+      link.download = "Nomina_ciega_respaldo.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("Descargando archivo Excel...");
+    });
+  }
+
   // 15. Theme Toggle Logic
   const themeToggle = document.getElementById("theme-toggle");
   const sunIcon = document.querySelector(".sun-icon");
