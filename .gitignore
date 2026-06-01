@@ -13,3 +13,4 @@ node_modules/
 # Archivos específicos de entorno
 *.backup
 AGENTS.md
+users.json

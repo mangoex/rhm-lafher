@@ -42,10 +42,15 @@
       <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: flex; align-items: center; gap: 0.25rem;"><i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado</div>
       <div id="period-indicator" class="badge info">Periodo Activo: 16 al 30 Abr 2026</div>
       <button id="theme-toggle" class="theme-toggle" title="Cambiar Tema">
-
         <i data-lucide="sun" class="sun-icon"></i>
         <i data-lucide="moon" class="moon-icon" style="display:none;"></i>
       </button>
+      <div id="header-user-info" style="display: none; align-items: center; gap: 0.5rem; margin-left: 0.5rem; border-left: 1px solid var(--panel-border); padding-left: 0.75rem;">
+        <span id="header-username" style="font-size: 0.85rem; font-weight: 600; color: var(--text-color);">Admin</span>
+        <button id="btn-logout" class="theme-toggle" title="Cerrar Sesión" style="color: var(--error); margin: 0; padding: 4px; display: flex; align-items: center; justify-content: center;">
+          <i data-lucide="log-out" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -419,6 +424,58 @@
         </form>
       </div>
 
+      <!-- 5B. USER MANAGEMENT (Only for Admin) -->
+      <div class="content-box" id="user-management-box" style="margin-top: 2rem; display: none;">
+        <h2><i data-lucide="users"></i> Gestión de Usuarios del Sistema</h2>
+        <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Crea o elimina cuentas de usuario y define sus niveles de acceso.</p>
+        
+        <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+          <!-- Form to create user -->
+          <div style="flex: 1; min-width: 300px;">
+            <h3 style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;"><i data-lucide="user-plus" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 5px;"></i> Nuevo Usuario</h3>
+            <form id="form-create-user" style="display: flex; flex-direction: column; gap: 1rem;">
+              <div class="form-group">
+                <label for="new-username">Nombre de Usuario</label>
+                <input type="text" id="new-username" required placeholder="ej. maria.contadora" style="width: 100%;">
+              </div>
+              <div class="form-group">
+                <label for="new-password">Contraseña</label>
+                <input type="password" id="new-password" required placeholder="••••••••" style="width: 100%;">
+              </div>
+              <div class="form-group">
+                <label for="new-role">Rol / Nivel de Acceso</label>
+                <select id="new-role" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px;">
+                  <option value="capturista">Capturista (Solo Incidencias)</option>
+                  <option value="admin">Administrador (Acceso Completo)</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary" style="align-self: flex-start; margin-top: 0.5rem;">
+                <i data-lucide="plus"></i> Crear / Guardar Usuario
+              </button>
+            </form>
+          </div>
+          
+          <!-- List of users -->
+          <div style="flex: 1.5; min-width: 350px;">
+            <h3 style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;"><i data-lucide="shield" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 5px;"></i> Usuarios Activos</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="users-list-table">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="content-box">
         <h2><i data-lucide="table"></i> Tabla de Vacaciones por Antigüedad (Ley Federal del Trabajo)</h2>
         <div class="table-wrapper" style="max-width: 500px; margin-top: 1rem;">
@@ -555,6 +612,31 @@
       <i data-lucide="x-circle" id="toast-icon-error" style="color: var(--danger); display: none;"></i>
     </div>
     <div class="toast-text" id="toast-message">Notificación del sistema</div>
+  </div>
+
+  <!-- Login Screen Overlay -->
+  <div id="login-screen" style="display: none; position: fixed; inset: 0; background: var(--bg-color); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
+    <div class="content-box" style="width: 100%; max-width: 400px; padding: 2.5rem; border: 1px solid var(--panel-border); box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius: 16px; background: var(--panel-bg); display: block;">
+      <div style="text-align: center; margin-bottom: 2rem;">
+        <div style="width: 60px; height: 60px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem auto; font-size: 1.8rem; font-weight: bold; color: white; box-shadow: 0 0 20px var(--primary-glow);">R</div>
+        <h2 style="font-size: 1.5rem; font-weight: bold; color: #fff;">Iniciar Sesión</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">CRM y Prenómina Inteligente RHM</p>
+      </div>
+      
+      <form id="form-login" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group">
+          <label for="login-username">Usuario</label>
+          <input type="text" id="login-username" required placeholder="Ingresa tu usuario" style="width: 100%; box-sizing: border-box; padding: 12px;">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Contraseña</label>
+          <input type="password" id="login-password" required placeholder="Ingresa tu contraseña" style="width: 100%; box-sizing: border-box; padding: 12px;">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; margin-top: 0.5rem;">
+          <i data-lucide="log-in"></i> Acceder al Sistema
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- App logic dependencies -->

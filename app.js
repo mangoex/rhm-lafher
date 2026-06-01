@@ -1,4 +1,50 @@
 // RHM CRM & Prenómina App Logic (Dynamic AI-Connected Edition)
+
+// Global Fetch Interceptor for Authentication
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = async function(resource, init) {
+    const token = localStorage.getItem("rhm_session_token");
+    if (token) {
+      init = init || {};
+      init.headers = init.headers || {};
+      if (init.headers instanceof Headers) {
+        init.headers.set("Authorization", `Bearer ${token}`);
+      } else if (Array.isArray(init.headers)) {
+        const hasAuth = init.headers.some(h => h[0] === "Authorization");
+        if (!hasAuth) {
+          init.headers.push(["Authorization", `Bearer ${token}`]);
+        }
+      } else {
+        init.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    const response = await originalFetch(resource, init);
+    if (response.status === 401 && !resource.toString().includes("/api/login")) {
+      // Session expired or invalid
+      localStorage.removeItem("rhm_session_token");
+      localStorage.removeItem("rhm_user_role");
+      localStorage.removeItem("rhm_username");
+      showLoginScreen();
+    }
+    return response;
+  };
+})();
+
+function showLoginScreen() {
+  const loginScreen = document.getElementById("login-screen");
+  if (loginScreen) {
+    loginScreen.style.display = "flex";
+  }
+}
+
+function hideLoginScreen() {
+  const loginScreen = document.getElementById("login-screen");
+  if (loginScreen) {
+    loginScreen.style.display = "none";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   
   // 1. Initial State & Configuration
@@ -1372,6 +1418,215 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // 15B. AUTH & RBAC IMPLEMENTATION
+  function applyRoleBasedUI() {
+    const role = localStorage.getItem("rhm_user_role") || "capturista";
+    const username = localStorage.getItem("rhm_username") || "Usuario";
+    
+    // Header user info
+    const headerUserInfo = document.getElementById("header-user-info");
+    const headerUsername = document.getElementById("header-username");
+    if (headerUserInfo && headerUsername) {
+      headerUsername.textContent = `${username} (${role === 'admin' ? 'Admin' : 'Capturista'})`;
+      headerUserInfo.style.display = "flex";
+    }
+
+    // Role restrictions
+    const configTabBtn = document.querySelector('.nav-links button[data-target="config"]');
+    const downloadExcelBtn = document.getElementById("btn-download-excel");
+    const addCollabBtn = document.getElementById("btn-add-collaborator");
+    const userMgmtBox = document.getElementById("user-management-box");
+
+    if (role === "capturista") {
+      if (configTabBtn) configTabBtn.style.display = "none";
+      if (downloadExcelBtn) downloadExcelBtn.style.display = "none";
+      if (addCollabBtn) addCollabBtn.style.display = "none";
+      if (userMgmtBox) userMgmtBox.style.display = "none";
+      
+      // If currently on config tab, switch to dashboard
+      if (state.activeTab === "config") {
+        switchTab("dashboard");
+      }
+    } else {
+      if (configTabBtn) configTabBtn.style.display = "inline-flex";
+      if (downloadExcelBtn) downloadExcelBtn.style.display = "inline-flex";
+      if (addCollabBtn) addCollabBtn.style.display = "inline-flex";
+      if (userMgmtBox) {
+        userMgmtBox.style.display = "block";
+        loadUsers();
+      }
+    }
+  }
+
+  function switchTab(targetTab) {
+    const navItem = document.querySelector(`.nav-item[data-target="${targetTab}"]`);
+    if (navItem) {
+      navItem.click();
+    }
+  }
+
+  // Login form handler
+  const formLogin = document.getElementById("form-login");
+  if (formLogin) {
+    formLogin.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const usernameInput = document.getElementById("login-username");
+      const passwordInput = document.getElementById("login-password");
+      
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      
+      fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      })
+      .then(res => {
+        if (!res.ok) {
+          throw new Error("Usuario o contraseña incorrectos");
+        }
+        return res.json();
+      })
+      .then(data => {
+        localStorage.setItem("rhm_session_token", data.token);
+        localStorage.setItem("rhm_user_role", data.role);
+        localStorage.setItem("rhm_username", data.username);
+        
+        usernameInput.value = "";
+        passwordInput.value = "";
+        
+        hideLoginScreen();
+        applyRoleBasedUI();
+        loadState();
+        showToast(`Sesión iniciada como ${data.username}`);
+      })
+      .catch(err => {
+        console.error("Login failed:", err);
+        showToast(err.message, "error");
+      });
+    });
+  }
+
+  // Logout button handler
+  const btnLogout = document.getElementById("btn-logout");
+  if (btnLogout) {
+    btnLogout.addEventListener("click", () => {
+      fetch("/api/logout", { method: "POST" })
+      .finally(() => {
+        localStorage.removeItem("rhm_session_token");
+        localStorage.removeItem("rhm_user_role");
+        localStorage.removeItem("rhm_username");
+        
+        const headerUserInfo = document.getElementById("header-user-info");
+        if (headerUserInfo) headerUserInfo.style.display = "none";
+        
+        showLoginScreen();
+        showToast("Sesión cerrada");
+      });
+    });
+  }
+
+  // Create user form handler
+  const formCreateUser = document.getElementById("form-create-user");
+  if (formCreateUser) {
+    formCreateUser.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const newUsernameInput = document.getElementById("new-username");
+      const newPasswordInput = document.getElementById("new-password");
+      const newRoleSelect = document.getElementById("new-role");
+      
+      const username = newUsernameInput.value.trim();
+      const password = newPasswordInput.value;
+      const role = newRoleSelect.value;
+      
+      fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, role })
+      })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(d => { throw new Error(d.error || "Error guardando usuario"); });
+        }
+        return res.json();
+      })
+      .then(() => {
+        newUsernameInput.value = "";
+        newPasswordInput.value = "";
+        showToast("Usuario guardado con éxito");
+        loadUsers();
+      })
+      .catch(err => {
+        console.error("Create user failed:", err);
+        showToast(err.message, "error");
+      });
+    });
+  }
+
+  function loadUsers() {
+    const listTable = document.getElementById("users-list-table");
+    if (!listTable) return;
+    
+    fetch("/api/users")
+    .then(res => {
+      if (!res.ok) throw new Error("Error cargando usuarios");
+      return res.json();
+    })
+    .then(users => {
+      listTable.innerHTML = "";
+      if (users.length === 0) {
+        listTable.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No hay usuarios registrados</td></tr>`;
+        return;
+      }
+      
+      users.forEach(u => {
+        const tr = document.createElement("tr");
+        const isSelf = u.username === localStorage.getItem("rhm_username");
+        
+        tr.innerHTML = `
+          <td><strong>${u.username}</strong> ${isSelf ? '<span class="badge info" style="font-size: 0.7rem; padding: 2px 6px; margin-left: 5px;">Tú</span>' : ''}</td>
+          <td><span class="badge ${u.role === 'admin' ? 'success' : 'secondary'}">${u.role === 'admin' ? 'Administrador' : 'Capturista'}</span></td>
+          <td style="text-align: center;">
+            ${isSelf ? '-' : `
+              <button class="btn btn-sm btn-logout delete-user-btn" data-username="${u.username}" style="color: var(--danger); background: transparent; border: none; cursor: pointer; padding: 4px;" title="Eliminar usuario">
+                <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
+              </button>
+            `}
+          </td>
+        `;
+        listTable.appendChild(tr);
+      });
+      
+      if (window.lucide) lucide.createIcons();
+      
+      listTable.querySelectorAll(".delete-user-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const username = btn.getAttribute("data-username");
+          if (confirm(`¿Estás seguro de que deseas eliminar al usuario "${username}"?`)) {
+            fetch(`/api/users?username=${encodeURIComponent(username)}`, { method: "DELETE" })
+            .then(res => {
+              if (!res.ok) {
+                return res.json().then(d => { throw new Error(d.error || "Error al eliminar usuario"); });
+              }
+              return res.json();
+            })
+            .then(() => {
+              showToast(`Usuario "${username}" eliminado`);
+              loadUsers();
+            })
+            .catch(err => {
+              console.error("Delete user failed:", err);
+              showToast(err.message, "error");
+            });
+          }
+        });
+      });
+    })
+    .catch(err => {
+      console.error("Load users failed:", err);
+    });
+  }
+
   // 16. Formatter helpers
   function formatCurrency(val) {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
@@ -1382,7 +1637,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 17. Initialize Application
-  loadState();
+  const sessionToken = localStorage.getItem("rhm_session_token");
+  if (!sessionToken) {
+    showLoginScreen();
+  } else {
+    hideLoginScreen();
+    applyRoleBasedUI();
+    loadState();
+  }
 
   // 18. AI Explainer Sidebar Integration
   let currentAIEmployeeId = null;

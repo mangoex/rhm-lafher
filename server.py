@@ -31,6 +31,43 @@ else:
     SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
 
 import shutil
+import hashlib
+import secrets
+import time
+
+USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
+SESSIONS = {}  # token -> {"username": username, "role": role, "expiry": timestamp}
+
+def hash_password(password, salt):
+    return hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        salt = secrets.token_hex(8)
+        hashed = hash_password("adminpassword123", salt)
+        users = {
+            "admin": {
+                "username": "admin",
+                "role": "admin",
+                "salt": salt,
+                "password": hashed
+            }
+        }
+        save_users(users)
+        return users
+    try:
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error loading users:", e)
+        return {}
+
+def save_users(users):
+    try:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f, indent=4)
+    except Exception as e:
+        print("Error saving users:", e)
 
 # Extract schema.json first if missing and frozen
 if getattr(sys, 'frozen', False):
@@ -701,6 +738,25 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path_only = self.path.split("?")[0]
+        
+        # Static files or non-API routes are served publicly
+        if not path_only.startswith("/api/"):
+            super().do_GET()
+            return
+            
+        # Authentication middleware for API routes
+        session = self.get_session_user()
+        if not session:
+            self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+            return
+            
+        # Admin-only GET endpoints
+        if path_only == "/api/download-excel" or path_only == "/api/users":
+            if session["role"] != "admin":
+                self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                return
+                
+        # Endpoint routes
         if path_only == "/api/employees":
             self.get_employees()
         elif path_only == "/api/schema":
@@ -711,13 +767,32 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.select_rules_file()
         elif path_only == "/api/download-excel":
             self.download_excel()
+        elif path_only == "/api/users":
+            self.get_users()
         else:
-            super().do_GET()
+            self.send_json({"error": "Endpoint not found"}, 404)
 
     def do_POST(self):
         path_only = self.path.split("?")[0]
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b""
+
+        # Login is public
+        if path_only == "/api/login":
+            self.login_endpoint(post_data)
+            return
+
+        # Authentication middleware for other API routes
+        session = self.get_session_user()
+        if not session:
+            self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+            return
+
+        # Admin-only POST endpoints
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file"]:
+            if session["role"] != "admin":
+                self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                return
 
         if path_only == "/api/parse-docx":
             self.parse_docx_endpoint(post_data)
@@ -739,8 +814,170 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_clarify(body)
         elif path_only == "/api/payroll/explain":
             self.explain_payroll(body)
+        elif path_only == "/api/users":
+            self.save_user_endpoint(body)
+        elif path_only == "/api/logout":
+            self.logout_endpoint()
         else:
             self.send_json({"error": "Endpoint not found"}, 404)
+
+    def do_DELETE(self):
+        path_only = self.path.split("?")[0]
+        session = self.get_session_user()
+        if not session:
+            self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+            return
+
+        if session["role"] != "admin":
+            self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+            return
+
+        if path_only == "/api/users":
+            import urllib.parse
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            username = params.get("username", [None])[0]
+            if not username:
+                self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
+                return
+            self.delete_user_endpoint(username)
+        else:
+            self.send_json({"error": "Endpoint not found"}, 404)
+
+    def get_session_user(self):
+        auth_header = self.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header.split(" ")[1]
+        session = SESSIONS.get(token)
+        if not session:
+            return None
+        if session["expiry"] < time.time():
+            del SESSIONS[token]
+            return None
+        return session
+
+    def login_endpoint(self, post_data):
+        try:
+            body = json.loads(post_data.decode("utf-8")) if post_data else {}
+            username = body.get("username", "").strip()
+            password = body.get("password", "")
+            
+            if not username or not password:
+                self.send_json({"error": "Usuario y contraseña requeridos"}, 400)
+                return
+                
+            users = load_users()
+            user = users.get(username)
+            if not user:
+                self.send_json({"error": "Usuario o contraseña incorrectos"}, 401)
+                return
+                
+            hashed = hash_password(password, user["salt"])
+            if hashed != user["password"]:
+                self.send_json({"error": "Usuario o contraseña incorrectos"}, 401)
+                return
+                
+            # Create session
+            token = secrets.token_hex(24)
+            expiry = time.time() + 86400  # 24 hours
+            SESSIONS[token] = {
+                "username": username,
+                "role": user["role"],
+                "expiry": expiry
+            }
+            
+            self.send_json({
+                "token": token,
+                "role": user["role"],
+                "username": username
+            })
+        except Exception as e:
+            self.send_json({"error": f"Error en login: {str(e)}"}, 500)
+
+    def logout_endpoint(self):
+        auth_header = self.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            if token in SESSIONS:
+                del SESSIONS[token]
+        self.send_json({"success": True})
+
+    def get_users(self):
+        try:
+            users = load_users()
+            public_users = []
+            for u in users.values():
+                public_users.append({
+                    "username": u["username"],
+                    "role": u["role"]
+                })
+            self.send_json(public_users)
+        except Exception as e:
+            self.send_json({"error": f"Error obteniendo usuarios: {e}"}, 500)
+
+    def save_user_endpoint(self, body):
+        try:
+            username = body.get("username", "").strip()
+            password = body.get("password", "")
+            role = body.get("role", "capturista")
+            
+            if not username:
+                self.send_json({"error": "El nombre de usuario es requerido"}, 400)
+                return
+                
+            if role not in ["admin", "capturista"]:
+                self.send_json({"error": "Rol inválido"}, 400)
+                return
+                
+            users = load_users()
+            
+            if username in users:
+                if password:
+                    salt = secrets.token_hex(8)
+                    users[username]["salt"] = salt
+                    users[username]["password"] = hash_password(password, salt)
+                users[username]["role"] = role
+            else:
+                if not password:
+                    self.send_json({"error": "La contraseña es requerida para nuevos usuarios"}, 400)
+                    return
+                salt = secrets.token_hex(8)
+                users[username] = {
+                    "username": username,
+                    "role": role,
+                    "salt": salt,
+                    "password": hash_password(password, salt)
+                }
+                
+            save_users(users)
+            self.send_json({"success": True})
+        except Exception as e:
+            self.send_json({"error": f"Error guardando usuario: {e}"}, 500)
+
+    def delete_user_endpoint(self, username):
+        try:
+            session = self.get_session_user()
+            if session and session["username"] == username:
+                self.send_json({"error": "No puedes eliminar tu propio usuario activo"}, 400)
+                return
+                
+            users = load_users()
+            if username not in users:
+                self.send_json({"error": "El usuario no existe"}, 404)
+                return
+                
+            if users[username]["role"] == "admin":
+                admins = [u for u in users.values() if u["role"] == "admin"]
+                if len(admins) <= 1:
+                    self.send_json({"error": "Debe existir al menos un usuario administrador en el sistema"}, 400)
+                    return
+                    
+            del users[username]
+            save_users(users)
+            self.send_json({"success": True})
+        except Exception as e:
+            self.send_json({"error": f"Error eliminando usuario: {e}"}, 500)
 
     def parse_docx_endpoint(self, post_data):
         try:
@@ -1821,6 +2058,8 @@ VALORES REGISTRADOS EN EXCEL:
             self.send_json({"error": f"Error explaining payroll: {e}", "details": tb}, 500)
 
 if __name__ == "__main__":
+    # Ensure users database is initialized/seeded
+    load_users()
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), APIHandler) as httpd:
         print(f"Serving RHM CRM & Prenómina on port {PORT}...")
