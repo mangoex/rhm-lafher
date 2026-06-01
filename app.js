@@ -1258,14 +1258,12 @@ document.addEventListener("DOMContentLoaded", () => {
   if (toggleApiKeyBtn) {
     toggleApiKeyBtn.addEventListener("click", () => {
       const input = document.getElementById("cfg-ai-key");
-      const icon = toggleApiKeyBtn.querySelector("i");
-      if (input.type === "password") {
-        input.type = "text";
-        icon.setAttribute("data-lucide", "eye-off");
-      } else {
-        input.type = "password";
-        icon.setAttribute("data-lucide", "eye");
-      }
+      if (!input) return;
+      
+      const isPassword = input.type === "password";
+      input.type = isPassword ? "text" : "password";
+      
+      toggleApiKeyBtn.innerHTML = `<i data-lucide="${isPassword ? 'eye-off' : 'eye'}"></i>`;
       if (window.lucide) lucide.createIcons();
     });
   }
