@@ -1235,26 +1235,47 @@ document.addEventListener("DOMContentLoaded", () => {
   // 12b. File upload for payroll rules (via native OS dialog for Pywebview compatibility)
   const btnLoadRulesFile = document.getElementById("btn-load-rules-file");
   if (btnLoadRulesFile) {
+    const rulesFileInput = document.createElement("input");
+    rulesFileInput.type = "file";
+    rulesFileInput.accept = ".docx,.txt";
+    rulesFileInput.style.display = "none";
+    document.body.appendChild(rulesFileInput);
+
     btnLoadRulesFile.addEventListener("click", () => {
-      showToast("Abriendo explorador de archivos nativo...", "info");
-      fetch("/api/select-rules-file?_t=" + Date.now())
-        .then(res => res.json())
-        .then(data => {
-          if (data.error) {
-            showToast(data.error, "error");
-            return;
+      rulesFileInput.value = "";
+      rulesFileInput.click();
+    });
+
+    rulesFileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      showToast("Leyendo archivo de reglas...", "info");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      fetch("/api/upload-rules?_t=" + Date.now(), {
+        method: "POST",
+        body: formData
+      })
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(d => { throw new Error(d.error || "Error al leer archivo"); });
           }
+          return res.json();
+        })
+        .then(data => {
           if (data.text) {
             const rulesTextArea = document.getElementById("cfg-payroll-rules");
             if (rulesTextArea) {
               rulesTextArea.value = data.text;
-              showToast("Reglas de nómina actualizadas con éxito.");
+              showToast("Reglas de nómina cargadas con éxito.");
             }
           }
         })
         .catch(err => {
           console.error("Error al cargar reglas:", err);
-          showToast("Error al abrir explorador de archivos para reglas.", "error");
+          showToast(err.message || "Error al procesar el archivo de reglas.", "error");
         });
     });
   }
@@ -1277,17 +1298,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const btnSelectDbPath = document.getElementById("btn-select-db-path");
   if (btnSelectDbPath) {
+    const dbFileInput = document.createElement("input");
+    dbFileInput.type = "file";
+    dbFileInput.accept = ".xlsx,.csv";
+    dbFileInput.style.display = "none";
+    document.body.appendChild(dbFileInput);
+
     btnSelectDbPath.addEventListener("click", () => {
-      showToast("Abriendo explorador de archivos nativo...", "info");
-      fetch("/api/select-file?_t=" + Date.now())
-        .then(res => res.json())
+      dbFileInput.value = "";
+      dbFileInput.click();
+    });
+
+    dbFileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      showToast("Subiendo y procesando base de datos...", "info");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      fetch("/api/upload-database?_t=" + Date.now(), {
+        method: "POST",
+        body: formData
+      })
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(d => { throw new Error(d.error || "Error al subir archivo"); });
+          }
+          return res.json();
+        })
         .then(data => {
           if (data.selected_path) {
             const dbPathInput = document.getElementById("cfg-db-path");
             if (dbPathInput) {
               dbPathInput.value = data.selected_path;
               
-              // Automatically save and reload selected database file
               const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
               const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
               const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
@@ -1295,15 +1340,6 @@ document.addEventListener("DOMContentLoaded", () => {
               const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
               const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
               const api_key = document.getElementById("cfg-gemini-key").value.trim();
-
-              if (data.selected_path.toLowerCase().endsWith(".pages")) {
-                showToast("Apple Pages (.pages) es un procesador de textos. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para conectarlo como base de datos.", "error");
-                return;
-              }
-              if (data.selected_path.toLowerCase().endsWith(".numbers")) {
-                showToast("Apple Numbers (.numbers) es un formato cerrado de Apple. Por favor, exporta el archivo a Excel (.xlsx) o CSV (.csv) para poder usarlo.", "error");
-                return;
-              }
 
               showToast("Guardando ruta de archivo y cargando datos...", "info");
 
@@ -1340,8 +1376,8 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         })
         .catch(err => {
-          console.error("Error al abrir diálogo de selección de archivo:", err);
-          showToast("Error al abrir explorador de archivos nativo.", "error");
+          console.error("Error al subir archivo de base de datos:", err);
+          showToast(err.message || "Error al subir el archivo.", "error");
         });
     });
   }

@@ -159,6 +159,43 @@ def parse_period_dates(period_str):
     else:
         return datetime.date(2026, 4, 16), datetime.date(2026, 4, 30)
 
+def parse_multipart(body_bytes, boundary):
+    parts = body_bytes.split(b'--' + boundary.encode('utf-8'))
+    result = {}
+    for part in parts:
+        if not part or part == b'\r\n' or part.startswith(b'--'):
+            continue
+        if b'\r\n\r\n' not in part:
+            continue
+        header_part, content = part.split(b'\r\n\r\n', 1)
+        if content.endswith(b'\r\n'):
+            content = content[:-2]
+            
+        headers = {}
+        for line in header_part.split(b'\r\n'):
+            if b':' in line:
+                key, val = line.split(b':', 1)
+                headers[key.decode('utf-8').strip().lower()] = val.decode('utf-8').strip()
+                
+        disp = headers.get('content-disposition', '')
+        if 'form-data' in disp:
+            name = None
+            filename = None
+            for item in disp.split(';'):
+                item = item.strip()
+                if item.startswith('name='):
+                    name = item.split('=', 1)[1].strip('"')
+                elif item.startswith('filename='):
+                    filename = item.split('=', 1)[1].strip('"')
+            
+            if name:
+                result[name] = {
+                    'filename': filename,
+                    'content': content,
+                    'content-type': headers.get('content-type', '')
+                }
+    return result
+
 def save_incidence_to_excel(wb, data):
     import datetime
     schema = check_and_heal_schema()
@@ -1015,13 +1052,19 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file"]:
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules"]:
             if session["role"] != "admin":
                 self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
                 return
 
         if path_only == "/api/parse-docx":
             self.parse_docx_endpoint(post_data)
+            return
+        elif path_only == "/api/upload-database":
+            self.upload_database_endpoint(post_data)
+            return
+        elif path_only == "/api/upload-rules":
+            self.upload_rules_endpoint(post_data)
             return
 
         try:
@@ -1352,6 +1395,100 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"text": extracted_text})
         except Exception as e:
             self.send_json({"error": f"Failed to parse docx file: {e}"}, 500)
+
+    def upload_database_endpoint(self, post_data):
+        try:
+            boundary = self.headers.get_param('boundary')
+            if not boundary:
+                self.send_json({"error": "No boundary in Content-Type"}, 400)
+                return
+            
+            parts = parse_multipart(post_data, boundary)
+            file_part = parts.get("file")
+            if not file_part:
+                self.send_json({"error": "No file uploaded in form data"}, 400)
+                return
+                
+            filename = file_part["filename"]
+            content = file_part["content"]
+            
+            if not filename or not content:
+                self.send_json({"error": "File is empty or has no name"}, 400)
+                return
+                
+            ext = filename.split('.')[-1].lower()
+            if ext not in ["xlsx", "xls", "csv"]:
+                self.send_json({"error": "Formato de archivo no soportado. Debe ser .xlsx o .csv"}, 400)
+                return
+                
+            safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
+            dest_path = os.path.join(BASE_DIR, safe_filename)
+            
+            with open(dest_path, "wb") as f:
+                f.write(content)
+                
+            self.send_json({"selected_path": dest_path})
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("Error in upload_database_endpoint:\n", tb)
+            self.send_json({"error": f"Error al subir base de datos: {e}", "details": tb}, 500)
+
+    def upload_rules_endpoint(self, post_data):
+        try:
+            boundary = self.headers.get_param('boundary')
+            if not boundary:
+                self.send_json({"error": "No boundary in Content-Type"}, 400)
+                return
+            
+            parts = parse_multipart(post_data, boundary)
+            file_part = parts.get("file")
+            if not file_part:
+                self.send_json({"error": "No file uploaded in form data"}, 400)
+                return
+                
+            filename = file_part["filename"]
+            content = file_part["content"]
+            
+            if not filename or not content:
+                self.send_json({"error": "File is empty or has no name"}, 400)
+                return
+                
+            ext = filename.split('.')[-1].lower()
+            if ext == "docx":
+                import zipfile
+                import xml.etree.ElementTree as ET
+                import io
+                
+                with zipfile.ZipFile(io.BytesIO(content)) as z:
+                    doc_xml = z.read('word/document.xml')
+                    root = ET.fromstring(doc_xml)
+                    
+                paragraphs = []
+                for elem in root.iter():
+                    tag_name = elem.tag.split('}')[-1]
+                    if tag_name == 'p':
+                        p_text = []
+                        for child in elem.iter():
+                            child_tag = child.tag.split('}')[-1]
+                            if child_tag == 't' and child.text:
+                                p_text.append(child.text)
+                        text_str = "".join(p_text).strip()
+                        if text_str:
+                            paragraphs.append(text_str)
+                extracted_text = "\n\n".join(paragraphs)
+                self.send_json({"text": extracted_text})
+            elif ext in ["txt", "csv"]:
+                try:
+                    extracted_text = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    extracted_text = content.decode("latin-1")
+                self.send_json({"text": extracted_text})
+            else:
+                self.send_json({"error": "Formato de reglas no soportado. Debe ser .docx o .txt"}, 400)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("Error in upload_rules_endpoint:\n", tb)
+            self.send_json({"error": f"Error al leer archivo de reglas: {e}", "details": tb}, 500)
 
     def get_schema(self):
         schema = check_and_heal_schema()
