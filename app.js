@@ -1277,7 +1277,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const modelSelect = document.getElementById("cfg-ai-model-select");
       if (modelSelect) {
         if (provider === "openrouter") {
-          modelSelect.value = "google/gemini-2.0-flash-exp:free";
+          modelSelect.value = "google/gemini-2.0-flash:free";
         } else {
           modelSelect.value = "gemini-2.0-flash";
         }
