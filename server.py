@@ -2728,8 +2728,17 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
 
                 self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes})
             except Exception as e:
+                import urllib.error
                 print("AI API call failed, falling back to local:", e)
-                self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
+                error_msg = str(e)
+                if isinstance(e, urllib.error.HTTPError):
+                    try:
+                        error_msg = f"HTTP {e.code}: {e.read().decode('utf-8')}"
+                    except:
+                        pass
+                
+                customized_desglose = local_desglose + f"\n\n*(Error de API: {error_msg})*"
+                self.send_json({"response": customized_desglose, "rules_source": rules_source, "offline": True, "error_details": error_msg})
         except Exception as e:
             tb = traceback.format_exc()
             print("Error in explain_payroll endpoint:\n", tb)
