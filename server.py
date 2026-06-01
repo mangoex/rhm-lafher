@@ -36,7 +36,24 @@ import secrets
 import time
 
 USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
+SECRETS_PATH = os.path.join(CONFIG_DIR, "secrets.json")
 SESSIONS = {}  # token -> {"username": username, "role": role, "expiry": timestamp}
+
+def load_secrets():
+    if not os.path.exists(SECRETS_PATH):
+        return {}
+    try:
+        with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_secrets(data):
+    try:
+        with open(SECRETS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving secrets: {e}")
 
 def hash_password(password, salt):
     return hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
@@ -366,7 +383,7 @@ def recompile_active_period_incidences(wb, schema):
         row += 1
 
 def load_schema():
-    default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "gemini_api_key": "", "pending_clarifications": [], "payroll_rules": ""}
+    default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "ai_provider": "google", "ai_model": "gemini-2.0-flash", "pending_clarifications": [], "payroll_rules": ""}
     if not os.path.exists(SCHEMA_PATH):
         docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
         default_schema["payroll_rules"] = extract_default_payroll_rules(docx_local)
@@ -644,35 +661,129 @@ def get_field_letter(schema, field_name):
             return col["letter"]
     return ""
 
-def get_gemini_api_key(schema):
-    key = schema.get("gemini_api_key", "").strip()
-    if key:
-        return key
-    return os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+def get_ai_api_key():
+    """Read AI API key from: 1) env var, 2) secrets.json. Never from schema.json."""
+    env_key = os.environ.get("AI_API_KEY", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    secrets = load_secrets()
+    return secrets.get("ai_api_key", "").strip()
 
-def call_gemini_api(prompt, api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    req_data = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "responseMimeType": "application/json"
-        }
-    }
-    headers = {"Content-Type": "application/json"}
-    data = json.dumps(req_data).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+def get_ai_config(schema):
+    """Return full AI configuration: provider, model, api_key."""
+    provider = schema.get("ai_provider", "google").strip().lower()
+    model = schema.get("ai_model", "gemini-2.0-flash").strip()
+    api_key = get_ai_api_key()
+    return {"provider": provider, "model": model, "api_key": api_key}
+
+def call_ai_api_simple(prompt, schema, response_json=True):
+    """Simple AI call (e.g. for schema healing). Returns parsed JSON or raw text."""
+    config = get_ai_config(schema)
+    if not config["api_key"]:
+        return None
+    
+    provider = config["provider"]
+    model = config["model"]
+    api_key = config["api_key"]
+    
     try:
-        with urllib.request.urlopen(req, timeout=3) as response:
+        if provider == "openrouter":
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            req_data = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            if response_json:
+                req_data["response_format"] = {"type": "json_object"}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "https://rhm-prenomina.up.railway.app",
+                "X-Title": "RHM Prenomina"
+            }
+            data = json.dumps(req_data).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_body = response.read().decode("utf-8")
+                res_json = json.loads(res_body)
+                text = res_json["choices"][0]["message"]["content"]
+                return json.loads(text) if response_json else text
+        else:
+            # Google AI (default)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            req_data = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            if response_json:
+                req_data["generationConfig"] = {"responseMimeType": "application/json"}
+            headers = {"Content-Type": "application/json"}
+            data = json.dumps(req_data).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_body = response.read().decode("utf-8")
+                res_json = json.loads(res_body)
+                text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(text) if response_json else text
+    except Exception as e:
+        print(f"Error calling AI API ({provider}/{model}):", e)
+        return None
+
+def call_ai_api_chat(system_prompt, contents_google_fmt, schema):
+    """Chat-style AI call with system prompt and conversation history.
+    contents_google_fmt is in Google format: [{"role": ..., "parts": [{"text": ...}]}]
+    Returns the raw text response or None on failure."""
+    config = get_ai_config(schema)
+    if not config["api_key"]:
+        return None
+    
+    provider = config["provider"]
+    model = config["model"]
+    api_key = config["api_key"]
+    
+    if provider == "openrouter":
+        # Convert Google format to OpenAI/OpenRouter format
+        messages = [{"role": "system", "content": system_prompt}]
+        for entry in contents_google_fmt:
+            role = entry.get("role", "user")
+            text = entry["parts"][0]["text"] if entry.get("parts") else ""
+            messages.append({
+                "role": "user" if role == "user" else "assistant",
+                "content": text
+            })
+        
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        req_data = {
+            "model": model,
+            "messages": messages
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://rhm-prenomina.up.railway.app",
+            "X-Title": "RHM Prenomina"
+        }
+        data = json.dumps(req_data).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=60) as response:
             res_body = response.read().decode("utf-8")
             res_json = json.loads(res_body)
-            candidate = res_json["candidates"][0]
-            text = candidate["content"]["parts"][0]["text"]
-            return json.loads(text)
-    except Exception as e:
-        print("Error calling Gemini API:", e)
-        return None
+            return res_json["choices"][0]["message"]["content"]
+    else:
+        # Google AI (default)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        req_data = {
+            "contents": contents_google_fmt,
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            }
+        }
+        headers = {"Content-Type": "application/json"}
+        data = json.dumps(req_data).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=60) as response:
+            res_body = response.read().decode("utf-8")
+            res_json = json.loads(res_body)
+            return res_json["candidates"][0]["content"]["parts"][0]["text"]
 
 def heal_schema_locally(current_headers, old_schema):
     """
@@ -812,14 +923,14 @@ def heal_schema_locally(current_headers, old_schema):
     return updated_schema
 
 def heal_schema_with_ai(current_headers, old_schema):
-    api_key = get_gemini_api_key(old_schema)
+    api_key = get_ai_api_key()
     if not api_key:
-        print("Gemini API Key is missing. Performing local deterministic schema healing.")
+        print("AI API Key is missing. Performing local deterministic schema healing.")
         updated_schema = heal_schema_locally(current_headers, old_schema)
         # Create a pending clarification to guide the user to configure key for advanced AI healing
         updated_schema["pending_clarifications"] = [{
-            "field": "gemini_api_key",
-            "question": "Se han detectado cambios en las cabeceras de Excel, pero no hay una GEMINI_API_KEY configurada. Se han alineado las columnas de forma local, pero puedes introducir tu clave en Configuración para usar la clasificación inteligente.",
+            "field": "ai_api_key",
+            "question": "Se han detectado cambios en las cabeceras de Excel, pero no hay una Clave de API de IA configurada. Se han alineado las columnas de forma local, pero puedes introducir tu clave en Configuración para usar la clasificación inteligente.",
             "options": ["Reintentar con clave configurada", "Omitir por ahora"]
         }]
         return updated_schema
@@ -875,7 +986,7 @@ def heal_schema_with_ai(current_headers, old_schema):
 
     Respond strictly in JSON format.
     """
-    res = call_gemini_api(prompt, api_key)
+    res = call_ai_api_simple(prompt, old_schema, response_json=True)
     if res and "columns" in res:
         updated_schema = dict(old_schema)
         old_fields = {col["field"]: col for col in old_schema["columns"]}
@@ -1026,6 +1137,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.download_excel()
         elif path_only == "/api/users":
             self.get_users()
+        elif path_only == "/api/ai-status":
+            self.get_ai_status()
         elif path_only == "/api/incidences":
             import urllib.parse
             parsed = urllib.parse.urlparse(self.path)
@@ -1052,7 +1165,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules"]:
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/secrets"]:
             if session["role"] != "admin":
                 self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
                 return
@@ -1081,6 +1194,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_period(body)
         elif path_only == "/api/config":
             self.save_config(body)
+        elif path_only == "/api/secrets":
+            self.save_secrets_endpoint(body)
         elif path_only == "/api/schema/clarify":
             self.save_clarify(body)
         elif path_only == "/api/payroll/explain":
@@ -1258,6 +1373,24 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": True})
         except Exception as e:
             self.send_json({"error": f"Error eliminando usuario: {e}"}, 500)
+
+    def get_ai_status(self):
+        try:
+            api_key = get_ai_api_key()
+            self.send_json({"configured": bool(api_key)})
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+    def save_secrets_endpoint(self, body):
+        try:
+            api_key = body.get("ai_api_key", "").strip() or body.get("gemini_api_key", "").strip()
+            if api_key:
+                sec = load_secrets()
+                sec["ai_api_key"] = api_key
+                save_secrets(sec)
+            self.send_json({"success": True})
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
 
     def get_incidences_endpoint(self, employee_id):
         try:
@@ -2025,12 +2158,17 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             fa_pct = float(body.get("fa_pct", 11.0))
             aguinaldo = float(body.get("aguinaldo", 15.0))
             prima = float(body.get("prima", 25.0))
-            api_key = body.get("gemini_api_key", "")
+            ai_provider = body.get("ai_provider", "google").strip().lower()
+            ai_model = body.get("ai_model", "gemini-2.0-flash").strip()
+            ai_api_key = body.get("ai_api_key", "").strip()
             db_path = body.get("db_path", "")
             payroll_rules = body.get("payroll_rules", "")
 
             schema = load_schema()
-            schema["gemini_api_key"] = api_key
+            schema["ai_provider"] = ai_provider
+            schema["ai_model"] = ai_model
+            # Remove legacy gemini_api_key from schema if present
+            schema.pop("gemini_api_key", None)
             schema["uma_cell"] = "S3"
             schema["vales_pct_cell"] = "P3"
             schema["dias_mes_cell"] = "N3"
@@ -2047,6 +2185,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 schema["db_path"] = db_path.strip()
                 
             save_schema(schema)
+
+            # Save API key to secrets.json (gitignored) if provided
+            if ai_api_key:
+                sec = load_secrets()
+                sec["ai_api_key"] = ai_api_key
+                save_secrets(sec)
 
             excel_path = get_excel_path()
             copy_template_if_needed(excel_path)
@@ -2361,68 +2505,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
   Resultado: **${neto_quincenal:,.2f}**
 """
 
-            # Try to use Gemini API if key is present
-            api_key = get_gemini_api_key(schema)
+            # Try to use AI API if key is present
+            api_key = get_ai_api_key()
             if not api_key:
                 self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
                 return
 
-            # Build Gemini Prompt
-            system_prompt = f"""Eres un asesor contable y fiscal experto en nómina mexicana, seguridad social (IMSS) y la Ley Federal del Trabajo (LFT).
-Tu tarea es explicar de manera clara, descriptiva, profesional y muy amigable el cálculo de la prenómina quincenal de un colaborador. 
-
-La audiencia son CONTADORES y administradores del sistema, por lo que debes usar terminología contable correcta (ej. SBC, salario integrado, exentos, gravados, LFT, UMA), pero la explicación debe ser TEXTUAL y fluida, no un simple código matemático frío.
-
-REGLAS DE COMUNICACIÓN Y FORMATO (ESTRICTAS):
-1. **PROHIBIDO EL USO DE LATEX:** No uses notación LaTeX ni delimitadores de dólar como "$$ \\text{{FI}} = ... $$" o similares. Los contadores no entienden LaTeX y rompe la visualización.
-2. **FÓRMULAS ESTILO EXCEL:** Muestra todas las fórmulas de cálculo utilizando el formato y funciones estándar de Microsoft Excel (ej. `=SUMA(...)`, `=REDONDEAR(...)`, `=1+(15/365)+(12*0.25/365)` o `=Salario_Diario * Factor_Integracion`).
-3. **RENDERIZADO DE CÓDIGO (BACKTICKS):** Envuelve todas las fórmulas y nombres de celdas/conceptos clave de Excel en comillas invertidas (backticks) simples, por ejemplo: `FI = 1 + (Días_Aguinaldo / 365) + (Días_Vacaciones * Prima_Vacacional / 365)`. Esto las resaltará como código de Excel en la interfaz.
-4. **EXPLICACIÓN TEXTUAL DETALLADA:** No te limites a dar números. Explica de forma textual de dónde proviene cada número y el fundamento básico (ej: por qué las faltas descuentan de manera proporcional el sueldo quincenal, o por qué los vales de despensa están exentos hasta el 40% de la UMA).
-5. **CERO VARIABLES DE PROGRAMACIÓN:** No utilices nombres de variables del backend (como `emp_data`, `salario_diario_col`, `null`, `float`, etc.). Usa los nombres reales de los conceptos contables en español.
-6. **FORMATO DE MONEDA:** Utiliza siempre formato de pesos mexicanos limpio y legible (ej: **$10,250.00**).
-
-CONSTANTES DE CONFIGURACIÓN DEL SISTEMA:
-- UMA (2026): ${uma:.2f}
-- % exento de Vales de Despensa: {vales_pct}% de la UMA por día promedio mensual (limite exento: 40% de la UMA)
-- Días promedio del mes: {dias_mes}
-- % Fondo de Ahorro: {fa_pct}% del sueldo nominal (si aplica)
-- Días de Aguinaldo del contrato: {aguinaldo}
-- % Prima Vacacional: {prima}%
-
-REGLAS DE CÁLCULO DE LA EMPRESA APLICADAS:
-{rules_to_use}
-
-ESTRUCTURA SUGERIDA DE RESPUESTA:
-- **Resumen del Colaborador:** Párrafo introductorio amigable con el puesto, ingreso, antigüedad y días de vacaciones de LFT.
-- **1. Base IMSS y Salario Diario Integrado:** Explicar el Factor de Integración con su fórmula Excel y el cálculo del SDI.
-- **2. Percepciones Nominales Mensuales:** Listar e indicar las fórmulas de Excel para Sueldo Nominal, Premios de Asistencia/Puntualidad y Vales de Despensa.
-- **3. Otros Conceptos Adicionales:** Honorarios asimilados, efectivo, socio, etc.
-- **4. Cálculo de la Quincena Final:** Mostrar cómo se llega del bruto mensual al quincenal, detallar el descuento de faltas de forma textual con su cálculo, y restar deducciones para obtener el Neto Quincenal a pagar.
-
-INSTRUCCIONES DE ACTUALIZACIÓN DE BASE DE DATOS (INCIDENCIAS):
-El usuario no solo te hará preguntas, sino que también puede darte instrucciones directas para modificar la prenómina de este colaborador en particular. Por ejemplo: "tuvo 2 faltas", "quítale el bono de puntualidad", "descuéntale $500 adicionales", "restablecer bono de asistencia", etc.
-Si de la consulta se infiere que debes realizar cambios o registrar incidencias para el colaborador actual en el sistema, procede así:
-1. Explica brevemente en tu respuesta contable qué cambios vas a registrar (ej: "Entendido, procedo a registrar 2 faltas y suspender el premio de puntualidad en el archivo Excel...").
-2. Incluye al final de tu respuesta (después de todo el texto descriptivo) un bloque de código JSON con formato exacto que contenga las actualizaciones. Debe ser exactamente de la siguiente forma:
-
-```json
-{{
-  "apply_changes": {{
-    "faltas": 2, // Número entero de faltas a registrar (0 a 15), null si no cambia o si se quitan las faltas (poner 0 si se quitan)
-    "descuento_adicional": 500.0, // Monto de descuento adicional (float), null si no cambia (poner 0 si se quita)
-    "puntualidad": "NO", // "NO" para suspenderlo (poner 0), "SI" para activarlo con su fórmula normal, null si no cambia
-    "asistencia": "NO", // "NO" para suspenderlo (poner 0), "SI" para activarlo con su fórmula normal, null si no cambia
-    "observaciones": "Descuento de 2 faltas y bono de puntualidad por inasistencia." // Breve justificación que se escribirá en observaciones, null si no cambia
-  }}
-}}
-```
-
-IMPORTANTE:
-- Solo incluye este bloque JSON si el mensaje del usuario representa una instrucción clara de cambio de datos. Si solo es una consulta o una pregunta contable general, NO incluyes el bloque "apply_changes".
-- El bloque JSON debe estar en una sección separada al final con la sintaxis de código de markdown de triple backtick.
-"""
-
-            # Build contents payload
+            # Build contents payload (Google format, converted internally for OpenRouter)
             contents = []
             
             # Map input chat_history to contents
@@ -2480,156 +2569,167 @@ VALORES REGISTRADOS EN EXCEL:
                     "parts": [{"text": collab_details}]
                 })
 
-            # Call Gemini Chat API
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-            req_data = {
-                "contents": contents,
-                "systemInstruction": {
-                    "parts": [{"text": system_prompt}]
-                }
-            }
-            headers = {"Content-Type": "application/json"}
-            data = json.dumps(req_data).encode("utf-8")
-            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-            
+            # Define system prompt
+            system_prompt = f"""Eres el Asistente AI de Prenómina de RHM. Tu función es ayudar al administrador a entender, validar y realizar modificaciones en el cálculo de nómina de los colaboradores.
+
+Normativa y Reglas de Nómina aplicables:
+{rules_to_use}
+
+Instrucciones:
+1. Explica el desglose del cálculo del colaborador de forma clara, profesional y paso a paso usando Markdown.
+2. Si el usuario te da instrucciones de registrar incidencias, modificar datos o aplicar ajustes (por ejemplo, "Tiene 2 faltas", "Quítale el bono de puntualidad", "Ponle un descuento adicional de $500", "Lleva un retardo", etc.), debes responder confirmando la acción y obligatoriamente incluir al final de tu respuesta un bloque de código JSON con el formato exacto descrito abajo.
+3. Si el usuario solo está conversando o haciendo preguntas sin solicitar un cambio/registro de incidencias, responde de forma conversacional normal y NO incluyas el bloque JSON.
+
+Formato del bloque JSON para cambios (debe ser un bloque de código Markdown con ```json ... ```):
+{{
+  "apply_changes": {{
+    "faltas": 2,                      // (opcional) número total de faltas en la quincena
+    "descuento_adicional": 500.0,     // (opcional) monto del descuento adicional en pesos
+    "observaciones": "Texto...",       // (opcional) observaciones sobre la incidencia o cambio
+    "puntualidad": false,             // (opcional) true/false o "SI"/"NO" para habilitar/deshabilitar el bono de puntualidad
+    "asistencia": false               // (opcional) true/false o "SI"/"NO" para habilitar/deshabilitar el bono de asistencia
+  }}
+}}
+
+Nota: El descuento por faltas se calculará automáticamente con base en las faltas registradas. El descuento adicional es acumulativo para otros conceptos puntuales.
+"""
+
+            # Call AI Chat API (supports Google and OpenRouter)
             try:
-                with urllib.request.urlopen(req, timeout=40) as response:
-                    res_body = response.read().decode("utf-8")
-                    res_json = json.loads(res_body)
-                    candidate = res_json["candidates"][0]
-                    text = candidate["content"]["parts"][0]["text"]
+                text = call_ai_api_chat(system_prompt, contents, schema)
+                if not text:
+                    raise Exception("AI API returned empty response")
                     
-                    # Parse apply_changes from response text
-                    applied_changes = False
-                    try:
-                        import re
-                        # Robustly try to find a JSON block even if missing ```json
-                        json_str = None
-                        m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
-                        if m:
-                            json_str = m.group(1).strip()
-                        else:
-                            # Try to find { "apply_changes": ... } inside the text directly
-                            m_direct = re.search(r"(\{.*?\"apply_changes\".*?\})", text, re.DOTALL)
-                            if m_direct:
-                                json_str = m_direct.group(1).strip()
-                        
-                        if json_str:
-                            changes_data = json.loads(json_str)
-                            if "apply_changes" in changes_data:
-                                changes = changes_data["apply_changes"]
+                # Parse apply_changes from response text
+                applied_changes = False
+                try:
+                    import re
+                    # Robustly try to find a JSON block even if missing ```json
+                    json_str = None
+                    m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+                    if m:
+                        json_str = m.group(1).strip()
+                    else:
+                        # Try to find { "apply_changes": ... } inside the text directly
+                        m_direct = re.search(r"(\{.*?\"apply_changes\".*?\})", text, re.DOTALL)
+                        if m_direct:
+                            json_str = m_direct.group(1).strip()
+                    
+                    if json_str:
+                        changes_data = json.loads(json_str)
+                        if "apply_changes" in changes_data:
+                            changes = changes_data["apply_changes"]
+                            
+                            # Open workbook to apply changes
+                            wb = load_workbook_agnostic(excel_path, data_only=False)
+                            ws = wb.active
+                            
+                            # Find employee row
+                            nombre_col = get_field_index(schema, "nombre")
+                            id_col = get_field_index(schema, "id")
+                            headers_row = find_headers_row(ws)
+                            row = headers_row + 1
+                            found_row = None
+                            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+                            temp_row_resolved = None
+                            if is_temp_id:
+                                try: temp_row_resolved = int(cod.split("_")[1])
+                                except ValueError: pass
+
+                            while True:
+                                nombre_val = ws.cell(row=row, column=nombre_col).value
+                                cod_val = ws.cell(row=row, column=id_col).value
+                                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                                    break
+                                if nombre_val is None and cod_val is None:
+                                    break
+                                if temp_row_resolved == row:
+                                    found_row = row
+                                    break
+                                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
+                                    found_row = row
+                                    break
+                                row += 1
+
+                            if found_row:
+                                nombre_val = ws.cell(row=found_row, column=nombre_col).value
                                 
-                                # Open workbook to apply changes
-                                wb = load_workbook_agnostic(excel_path, data_only=False)
-                                ws = wb.active
+                                # Determine appropriate date (either today, or active period start date)
+                                import datetime
+                                today_str = datetime.date.today().strftime("%Y-%m-%d")
+                                period_str = schema.get("period", "16 al 30 Abr 2026")
+                                start_date, end_date = parse_period_dates(period_str)
+                                if not (start_date <= datetime.date.today() <= end_date):
+                                    today_str = start_date.strftime("%Y-%m-%d")
+
+                                # Try to load existing incidence on today_str for this employee
+                                ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
+                                existing_inc = {
+                                    "faltas": 0,
+                                    "retardos": 0,
+                                    "vacaciones": 0,
+                                    "descuento_adicional": 0.0,
+                                    "puntualidad": "SI",
+                                    "asistencia": "SI",
+                                    "observaciones": ""
+                                }
+                                if ws_inc:
+                                    for r in range(2, ws_inc.max_row + 1):
+                                        r_date = ws_inc.cell(row=r, column=1).value
+                                        r_cod = ws_inc.cell(row=r, column=2).value
+                                        if r_date and r_cod and str(r_date)[:10] == today_str and str(r_cod).strip() == str(cod).strip():
+                                            existing_inc["faltas"] = int(ws_inc.cell(row=r, column=4).value or 0)
+                                            existing_inc["retardos"] = int(ws_inc.cell(row=r, column=5).value or 0)
+                                            existing_inc["vacaciones"] = int(ws_inc.cell(row=r, column=6).value or 0)
+                                            existing_inc["descuento_adicional"] = float(ws_inc.cell(row=r, column=7).value or 0.0)
+                                            existing_inc["puntualidad"] = ws_inc.cell(row=r, column=8).value or "SI"
+                                            existing_inc["asistencia"] = ws_inc.cell(row=r, column=9).value or "SI"
+                                            existing_inc["observaciones"] = ws_inc.cell(row=r, column=10).value or ""
+                                            break
                                 
-                                # Find employee row
-                                nombre_col = get_field_index(schema, "nombre")
-                                id_col = get_field_index(schema, "id")
-                                headers_row = find_headers_row(ws)
-                                row = headers_row + 1
-                                found_row = None
-                                is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
-                                temp_row_resolved = None
-                                if is_temp_id:
-                                    try: temp_row_resolved = int(cod.split("_")[1])
-                                    except ValueError: pass
+                                # Override with AI changes
+                                ai_faltas = changes.get("faltas")
+                                if ai_faltas is not None:
+                                    existing_inc["faltas"] = int(ai_faltas)
+                                
+                                ai_desc = changes.get("descuento_adicional")
+                                if ai_desc is not None:
+                                    existing_inc["descuento_adicional"] = float(ai_desc)
+                                    
+                                ai_obs = changes.get("observaciones")
+                                if ai_obs is not None:
+                                    existing_inc["observaciones"] = str(ai_obs)
+                                    
+                                ai_punt = changes.get("puntualidad")
+                                if ai_punt is not None:
+                                    existing_inc["puntualidad"] = "SI" if (ai_punt is True or str(ai_punt).upper() == "SI") else "NO"
+                                    
+                                ai_asist = changes.get("asistencia")
+                                if ai_asist is not None:
+                                    existing_inc["asistencia"] = "SI" if (ai_asist is True or str(ai_asist).upper() == "SI") else "NO"
+                                    
+                                # Save to Incidencias log
+                                incidence_data = {
+                                    "date": today_str,
+                                    "id": cod,
+                                    "nombre": nombre_val or "",
+                                    **existing_inc
+                                }
+                                save_incidence_to_excel(wb, incidence_data)
+                                
+                                # Recompile to update Hoja1
+                                recompile_active_period_incidences(wb, schema)
+                                
+                                save_workbook_agnostic(wb, excel_path)
+                                applied_changes = True
+                            wb.close()
+                except Exception as parse_e:
+                    print("Error parsing and applying changes from AI:", parse_e)
 
-                                while True:
-                                    nombre_val = ws.cell(row=row, column=nombre_col).value
-                                    cod_val = ws.cell(row=row, column=id_col).value
-                                    if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
-                                        break
-                                    if nombre_val is None and cod_val is None:
-                                        break
-                                    if temp_row_resolved == row:
-                                        found_row = row
-                                        break
-                                    elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
-                                        found_row = row
-                                        break
-                                    row += 1
-
-                                if found_row:
-                                    nombre_val = ws.cell(row=found_row, column=nombre_col).value
-                                    
-                                    # Determine appropriate date (either today, or active period start date)
-                                    import datetime
-                                    today_str = datetime.date.today().strftime("%Y-%m-%d")
-                                    period_str = schema.get("period", "16 al 30 Abr 2026")
-                                    start_date, end_date = parse_period_dates(period_str)
-                                    if not (start_date <= datetime.date.today() <= end_date):
-                                        today_str = start_date.strftime("%Y-%m-%d")
-
-                                    # Try to load existing incidence on today_str for this employee
-                                    ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
-                                    existing_inc = {
-                                        "faltas": 0,
-                                        "retardos": 0,
-                                        "vacaciones": 0,
-                                        "descuento_adicional": 0.0,
-                                        "puntualidad": "SI",
-                                        "asistencia": "SI",
-                                        "observaciones": ""
-                                    }
-                                    if ws_inc:
-                                        for r in range(2, ws_inc.max_row + 1):
-                                            r_date = ws_inc.cell(row=r, column=1).value
-                                            r_cod = ws_inc.cell(row=r, column=2).value
-                                            if r_date and r_cod and str(r_date)[:10] == today_str and str(r_cod).strip() == str(cod).strip():
-                                                existing_inc["faltas"] = int(ws_inc.cell(row=r, column=4).value or 0)
-                                                existing_inc["retardos"] = int(ws_inc.cell(row=r, column=5).value or 0)
-                                                existing_inc["vacaciones"] = int(ws_inc.cell(row=r, column=6).value or 0)
-                                                existing_inc["descuento_adicional"] = float(ws_inc.cell(row=r, column=7).value or 0.0)
-                                                existing_inc["puntualidad"] = ws_inc.cell(row=r, column=8).value or "SI"
-                                                existing_inc["asistencia"] = ws_inc.cell(row=r, column=9).value or "SI"
-                                                existing_inc["observaciones"] = ws_inc.cell(row=r, column=10).value or ""
-                                                break
-                                    
-                                    # Override with AI changes
-                                    ai_faltas = changes.get("faltas")
-                                    if ai_faltas is not None:
-                                        existing_inc["faltas"] = int(ai_faltas)
-                                    
-                                    ai_desc = changes.get("descuento_adicional")
-                                    if ai_desc is not None:
-                                        existing_inc["descuento_adicional"] = float(ai_desc)
-                                        
-                                    ai_obs = changes.get("observaciones")
-                                    if ai_obs is not None:
-                                        existing_inc["observaciones"] = str(ai_obs)
-                                        
-                                    ai_punt = changes.get("puntualidad")
-                                    if ai_punt is not None:
-                                        existing_inc["puntualidad"] = "SI" if (ai_punt is True or str(ai_punt).upper() == "SI") else "NO"
-                                        
-                                    ai_asist = changes.get("asistencia")
-                                    if ai_asist is not None:
-                                        existing_inc["asistencia"] = "SI" if (ai_asist is True or str(ai_asist).upper() == "SI") else "NO"
-                                        
-                                    # Save to Incidencias log
-                                    incidence_data = {
-                                        "date": today_str,
-                                        "id": cod,
-                                        "nombre": nombre_val or "",
-                                        **existing_inc
-                                    }
-                                    save_incidence_to_excel(wb, incidence_data)
-                                    
-                                    # Recompile to update Hoja1
-                                    recompile_active_period_incidences(wb, schema)
-                                    
-                                    save_workbook_agnostic(wb, excel_path)
-                                    applied_changes = True
-                                wb.close()
-                    except Exception as parse_e:
-                        print("Error parsing and applying changes from Gemini:", parse_e)
-
-                    self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes})
+                self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes})
             except Exception as e:
-                print("Gemini API call failed, falling back to local:", e)
+                print("AI API call failed, falling back to local:", e)
                 self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
-
         except Exception as e:
             tb = traceback.format_exc()
             print("Error in explain_payroll endpoint:\n", tb)

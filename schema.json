@@ -1,7 +1,8 @@
 {
   "uma_cell": "S3",
   "period": "16 al 30 Abr 2026",
-  "gemini_api_key": "AIzaSyD9d4jbv2hL04B9zuIOv2-cv8QS7xXNUuE",
+  "ai_provider": "google",
+  "ai_model": "gemini-2.0-flash",
   "pending_clarifications": [],
   "columns": [
     {

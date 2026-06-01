@@ -47,6 +47,68 @@ function hideLoginScreen() {
 
 document.addEventListener("DOMContentLoaded", () => {
   
+  // Helper functions for AI configuration status
+  function toggleAIProviderModels(provider) {
+    const modelSelect = document.getElementById("cfg-ai-model-select");
+    if (!modelSelect) return;
+    
+    const options = modelSelect.options;
+    
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (opt.value === "custom") continue;
+      
+      const isOrOption = opt.classList.contains("or-option");
+      if (provider === "openrouter") {
+        if (isOrOption) {
+          opt.style.display = "";
+        } else {
+          opt.style.display = "none";
+        }
+      } else {
+        if (isOrOption) {
+          opt.style.display = "none";
+        } else {
+          opt.style.display = "";
+        }
+      }
+    }
+  }
+
+  function updateAIStatusUI() {
+    fetch("/api/ai-status?_t=" + Date.now())
+      .then(res => res.json())
+      .then(data => {
+        const badge = document.getElementById("ai-key-status-badge");
+        const keyInput = document.getElementById("cfg-ai-key");
+        const chatInput = document.getElementById("ai-chat-input");
+        const chatSend = document.getElementById("btn-ai-chat-send");
+        
+        if (badge) {
+          if (data.configured) {
+            badge.className = "badge success";
+            badge.innerHTML = `<i data-lucide="check-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Conectado / Clave Guardada`;
+            if (keyInput) {
+              keyInput.value = "";
+              keyInput.placeholder = "•••••••••••••••••••••••• (Clave Guardada)";
+            }
+            if (chatInput) chatInput.disabled = false;
+            if (chatSend) chatSend.disabled = false;
+          } else {
+            badge.className = "badge danger";
+            badge.innerHTML = `<i data-lucide="x-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Sin Clave / Desconectado`;
+            if (keyInput) {
+              keyInput.placeholder = "Introduce tu clave API...";
+            }
+            if (chatInput) chatInput.disabled = true;
+            if (chatSend) chatSend.disabled = true;
+          }
+          if (window.lucide) lucide.createIcons();
+        }
+      })
+      .catch(err => console.error("Error fetching AI status:", err));
+  }
+
   // 1. Initial State & Configuration
   const DEFAULT_CONFIG = {
     uma: 117.31,
@@ -86,11 +148,41 @@ document.addEventListener("DOMContentLoaded", () => {
       .then(schemaData => {
         state.schema = schemaData;
         
-        // Populate Gemini API Key field
-        const keyInput = document.getElementById("cfg-gemini-key");
-        if (keyInput) {
-          keyInput.value = schemaData.gemini_api_key || "";
+        // Populate AI configuration fields
+        const providerSelect = document.getElementById("cfg-ai-provider");
+        const modelSelect = document.getElementById("cfg-ai-model-select");
+        const modelCustomGroup = document.getElementById("cfg-ai-model-custom-group");
+        const modelCustomInput = document.getElementById("cfg-ai-model-custom");
+        
+        if (providerSelect) {
+          const provider = schemaData.ai_provider || "google";
+          providerSelect.value = provider;
+          toggleAIProviderModels(provider);
+          
+          if (modelSelect) {
+            const model = schemaData.ai_model || "gemini-2.0-flash";
+            // Check if model exists as an option
+            let optionExists = false;
+            for (let i = 0; i < modelSelect.options.length; i++) {
+              if (modelSelect.options[i].value === model) {
+                optionExists = true;
+                break;
+              }
+            }
+            
+            if (optionExists) {
+              modelSelect.value = model;
+              if (modelCustomGroup) modelCustomGroup.style.display = "none";
+            } else {
+              modelSelect.value = "custom";
+              if (modelCustomGroup) modelCustomGroup.style.display = "flex";
+              if (modelCustomInput) modelCustomInput.value = model;
+            }
+          }
         }
+        
+        // Fetch and update AI API key configuration status
+        updateAIStatusUI();
 
         // Show clarifications banner if pending
         renderClarificationBanner();
@@ -1165,7 +1257,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const toggleApiKeyBtn = document.getElementById("toggle-api-key");
   if (toggleApiKeyBtn) {
     toggleApiKeyBtn.addEventListener("click", () => {
-      const input = document.getElementById("cfg-gemini-key");
+      const input = document.getElementById("cfg-ai-key");
       const icon = toggleApiKeyBtn.querySelector("i");
       if (input.type === "password") {
         input.type = "text";
@@ -1175,6 +1267,34 @@ document.addEventListener("DOMContentLoaded", () => {
         icon.setAttribute("data-lucide", "eye");
       }
       if (window.lucide) lucide.createIcons();
+    });
+  }
+
+  const aiProviderSelect = document.getElementById("cfg-ai-provider");
+  if (aiProviderSelect) {
+    aiProviderSelect.addEventListener("change", (e) => {
+      const provider = e.target.value;
+      toggleAIProviderModels(provider);
+      
+      const modelSelect = document.getElementById("cfg-ai-model-select");
+      if (modelSelect) {
+        if (provider === "openrouter") {
+          modelSelect.value = "google/gemini-2.0-flash-exp:free";
+        } else {
+          modelSelect.value = "gemini-2.0-flash";
+        }
+        modelSelect.dispatchEvent(new Event("change"));
+      }
+    });
+  }
+
+  const aiModelSelect = document.getElementById("cfg-ai-model-select");
+  if (aiModelSelect) {
+    aiModelSelect.addEventListener("change", (e) => {
+      const customGroup = document.getElementById("cfg-ai-model-custom-group");
+      if (customGroup) {
+        customGroup.style.display = e.target.value === "custom" ? "flex" : "none";
+      }
     });
   }
 
@@ -1189,7 +1309,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
       const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
       const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
-      const api_key = document.getElementById("cfg-gemini-key").value.trim();
+      
+      const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
+      const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.0-flash";
+      const ai_model = modelSelectVal === "custom" 
+        ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.0-flash")
+        : modelSelectVal;
+      const api_key = document.getElementById("cfg-ai-key") ? document.getElementById("cfg-ai-key").value.trim() : "";
       const rules = document.getElementById("cfg-payroll-rules") ? document.getElementById("cfg-payroll-rules").value : "";
  
       if (db_path.toLowerCase().endsWith(".pages")) {
@@ -1211,9 +1337,10 @@ document.addEventListener("DOMContentLoaded", () => {
           fa_pct: fa_pct,
           aguinaldo: aguinaldo,
           prima: prima,
-          gemini_api_key: api_key,
           db_path: db_path,
-          payroll_rules: rules
+          payroll_rules: rules,
+          ai_provider: ai_provider,
+          ai_model: ai_model
         })
       })
         .then(res => res.json())
@@ -1222,8 +1349,31 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast(resData.error, "error");
             return;
           }
-          showToast("Configuración guardada en la base de datos con éxito.");
-          loadState();
+          
+          if (api_key) {
+            fetch("/api/secrets", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ai_api_key: api_key })
+            })
+              .then(sRes => sRes.json())
+              .then(sData => {
+                if (sData.error) {
+                  showToast("Configuración guardada, pero hubo un error al guardar la clave API: " + sData.error, "warning");
+                } else {
+                  showToast("Configuración y clave API guardadas con éxito.");
+                }
+                loadState();
+              })
+              .catch(err => {
+                console.error("Error saving API key:", err);
+                showToast("Configuración guardada, pero falló al registrar la clave API.", "error");
+                loadState();
+              });
+          } else {
+            showToast("Configuración guardada con éxito.");
+            loadState();
+          }
         })
         .catch(err => {
           console.error("Error guardando config:", err);
@@ -1280,21 +1430,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Toggle Gemini API Key Visibility
-  const btnToggleKeyVisibility = document.getElementById("btn-toggle-key-visibility");
-  const cfgGeminiKeyInput = document.getElementById("cfg-gemini-key");
-  if (btnToggleKeyVisibility && cfgGeminiKeyInput) {
-    btnToggleKeyVisibility.addEventListener("click", () => {
-      const isPassword = cfgGeminiKeyInput.type === "password";
-      cfgGeminiKeyInput.type = isPassword ? "text" : "password";
-      
-      const icon = btnToggleKeyVisibility.querySelector("i");
-      if (icon) {
-        icon.setAttribute("data-lucide", isPassword ? "eye-off" : "eye");
-        if (window.lucide) lucide.createIcons();
-      }
-    });
-  }
+
 
   const btnSelectDbPath = document.getElementById("btn-select-db-path");
   if (btnSelectDbPath) {
@@ -1339,7 +1475,13 @@ document.addEventListener("DOMContentLoaded", () => {
               const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
               const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
               const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
-              const api_key = document.getElementById("cfg-gemini-key").value.trim();
+              
+              const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
+              const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.0-flash";
+              const ai_model = modelSelectVal === "custom" 
+                ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.0-flash")
+                : modelSelectVal;
+              const api_key = document.getElementById("cfg-ai-key") ? document.getElementById("cfg-ai-key").value.trim() : "";
 
               showToast("Guardando ruta de archivo y cargando datos...", "info");
 
@@ -1353,8 +1495,9 @@ document.addEventListener("DOMContentLoaded", () => {
                   fa_pct: fa_pct,
                   aguinaldo: aguinaldo,
                   prima: prima,
-                  gemini_api_key: api_key,
-                  db_path: data.selected_path
+                  db_path: data.selected_path,
+                  ai_provider: ai_provider,
+                  ai_model: ai_model
                 })
               })
                 .then(res => res.json())
@@ -1363,8 +1506,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     showToast(resData.error, "error");
                     return;
                   }
-                  showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
-                  loadState();
+                  
+                  if (api_key) {
+                    fetch("/api/secrets", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ ai_api_key: api_key })
+                    })
+                      .then(sRes => sRes.json())
+                      .then(sData => {
+                        showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y configuración guardada con éxito.", "success");
+                        loadState();
+                      })
+                      .catch(err => {
+                        console.error("Error saving API key:", err);
+                        showToast("Conectado con éxito, pero falló al registrar la clave API.", "warning");
+                        loadState();
+                      });
+                  } else {
+                    showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
+                    loadState();
+                  }
                 })
                 .catch(err => {
                   console.error("Error al guardar ruta seleccionada:", err);

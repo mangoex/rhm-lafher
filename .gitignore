@@ -9,6 +9,7 @@
 # Carpetas de desarrollo y dependencias (si aplica)
 node_modules/
 .env
+secrets.json
 
 # Archivos específicos de entorno
 *.backup
