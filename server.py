@@ -662,19 +662,22 @@ def get_field_letter(schema, field_name):
     return ""
 
 def get_ai_api_key():
-    """Read AI API key from: 1) env var, 2) secrets.json. Never from schema.json."""
-    env_key = os.environ.get("AI_API_KEY", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
-    if env_key:
-        return env_key
+    """Read AI API key from: 1) secrets.json, 2) env var. Never from schema.json."""
     secrets = load_secrets()
-    return secrets.get("ai_api_key", "").strip()
+    if "ai_api_key" in secrets:
+        return secrets.get("ai_api_key", "").strip()
+    env_key = os.environ.get("AI_API_KEY", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+    return env_key
 
 def get_ai_config(schema):
     """Return full AI configuration: provider, model, api_key."""
     provider = schema.get("ai_provider", "google").strip().lower()
+    if provider == "none":
+        return {"provider": "none", "model": "", "api_key": ""}
     model = schema.get("ai_model", "gemini-2.0-flash").strip()
     api_key = get_ai_api_key()
     return {"provider": provider, "model": model, "api_key": api_key}
+
 
 def call_ai_api_simple(prompt, schema, response_json=True):
     """Simple AI call (e.g. for schema healing). Returns parsed JSON or raw text."""
@@ -1383,8 +1386,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def save_secrets_endpoint(self, body):
         try:
-            api_key = body.get("ai_api_key", "").strip() or body.get("gemini_api_key", "").strip()
-            if api_key:
+            if "ai_api_key" in body or "gemini_api_key" in body:
+                api_key = body.get("ai_api_key", "").strip() or body.get("gemini_api_key", "").strip()
                 sec = load_secrets()
                 sec["ai_api_key"] = api_key
                 save_secrets(sec)

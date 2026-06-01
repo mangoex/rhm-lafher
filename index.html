@@ -484,10 +484,11 @@
                   <select id="cfg-ai-provider" style="width: 100%;">
                     <option value="google">Google Gemini</option>
                     <option value="openrouter">OpenRouter</option>
+                    <option value="none">Desactivado (Offline)</option>
                   </select>
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" id="cfg-ai-model-group">
                   <label for="cfg-ai-model-select">Modelo AI</label>
                   <select id="cfg-ai-model-select" style="width: 100%;">
                     <!-- Gemini options (Direct Google AI) -->
@@ -510,17 +511,22 @@
                 <input type="text" id="cfg-ai-model-custom" placeholder="ej. google/gemini-2.5-pro" style="width: 100%;">
               </div>
               
-              <div class="form-group">
+              <div class="form-group" id="cfg-ai-key-group">
                 <label for="cfg-ai-key" style="display: flex; justify-content: space-between; align-items: center;">
                   <span>Clave de API</span>
                   <span id="ai-key-status-badge" class="badge danger" style="font-size: 0.75rem; padding: 2px 8px;">
                     <i data-lucide="x-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Sin Clave / Desconectado
                   </span>
                 </label>
-                <div style="position: relative; display: flex; align-items: center;">
-                  <input type="password" id="cfg-ai-key" placeholder="Introduce tu clave API..." autocomplete="new-password" style="padding-right: 40px; width: 100%;">
-                  <button type="button" id="toggle-api-key" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--text-muted);">
-                    <i data-lucide="eye"></i>
+                <div style="position: relative; display: flex; align-items: center; gap: 8px;">
+                  <div style="position: relative; flex: 1; display: flex; align-items: center;">
+                    <input type="password" id="cfg-ai-key" placeholder="Introduce tu clave API..." autocomplete="new-password" style="padding-right: 40px; width: 100%;">
+                    <button type="button" id="toggle-api-key" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--text-muted);">
+                      <i data-lucide="eye"></i>
+                    </button>
+                  </div>
+                  <button type="button" id="btn-delete-ai-key" class="btn btn-sm btn-danger" title="Eliminar clave guardada" style="display: none; height: 38px; padding: 0 12px; justify-content: center; align-items: center;">
+                    <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
                   </button>
                 </div>
                 <small style="color: var(--text-muted);">La clave de API se almacena de forma segura en el servidor y nunca se expone públicamente.</small>

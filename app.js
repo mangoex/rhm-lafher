@@ -50,8 +50,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Helper functions for AI configuration status
   function toggleAIProviderModels(provider) {
     const modelSelect = document.getElementById("cfg-ai-model-select");
-    if (!modelSelect) return;
+    const modelGroup = document.getElementById("cfg-ai-model-group");
+    const customGroup = document.getElementById("cfg-ai-model-custom-group");
+    const keyGroup = document.getElementById("cfg-ai-key-group");
     
+    if (provider === "none") {
+      if (modelGroup) modelGroup.style.display = "none";
+      if (customGroup) customGroup.style.display = "none";
+      if (keyGroup) keyGroup.style.display = "none";
+      return;
+    }
+    
+    if (modelGroup) modelGroup.style.display = "";
+    if (keyGroup) keyGroup.style.display = "";
+    
+    if (!modelSelect) return;
     const options = modelSelect.options;
     
     for (let i = 0; i < options.length; i++) {
@@ -73,6 +86,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
     }
+    
+    if (customGroup) {
+      customGroup.style.display = modelSelect.value === "custom" ? "flex" : "none";
+    }
   }
 
   function updateAIStatusUI() {
@@ -83,6 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const keyInput = document.getElementById("cfg-ai-key");
         const chatInput = document.getElementById("ai-chat-input");
         const chatSend = document.getElementById("btn-ai-chat-send");
+        const deleteBtn = document.getElementById("btn-delete-ai-key");
         
         if (badge) {
           if (data.configured) {
@@ -94,14 +112,17 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if (chatInput) chatInput.disabled = false;
             if (chatSend) chatSend.disabled = false;
+            if (deleteBtn) deleteBtn.style.display = "flex";
           } else {
             badge.className = "badge danger";
             badge.innerHTML = `<i data-lucide="x-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Sin Clave / Desconectado`;
             if (keyInput) {
+              keyInput.value = "";
               keyInput.placeholder = "Introduce tu clave API...";
             }
             if (chatInput) chatInput.disabled = true;
             if (chatSend) chatSend.disabled = true;
+            if (deleteBtn) deleteBtn.style.display = "none";
           }
           if (window.lucide) lucide.createIcons();
         }
@@ -1278,10 +1299,38 @@ document.addEventListener("DOMContentLoaded", () => {
       if (modelSelect) {
         if (provider === "openrouter") {
           modelSelect.value = "meta-llama/llama-3.3-70b-instruct:free";
-        } else {
+        } else if (provider === "google") {
           modelSelect.value = "gemini-2.0-flash";
         }
         modelSelect.dispatchEvent(new Event("change"));
+      }
+    });
+  }
+
+  const btnDeleteAiKey = document.getElementById("btn-delete-ai-key");
+  if (btnDeleteAiKey) {
+    btnDeleteAiKey.addEventListener("click", () => {
+      if (confirm("¿Estás seguro de que deseas eliminar la clave API guardada? Esto desactivará el asistente de IA hasta que configures una nueva clave.")) {
+        fetch("/api/secrets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ai_api_key: "" })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.error) {
+              showToast("Error al eliminar la clave: " + data.error, "error");
+            } else {
+              showToast("Clave de API eliminada con éxito.");
+              const keyInput = document.getElementById("cfg-ai-key");
+              if (keyInput) keyInput.value = "";
+              updateAIStatusUI();
+            }
+          })
+          .catch(err => {
+            console.error("Error deleting API key:", err);
+            showToast("Error de conexión al intentar eliminar la clave.", "error");
+          });
       }
     });
   }
