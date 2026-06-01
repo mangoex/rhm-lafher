@@ -1987,7 +1987,7 @@ document.addEventListener("DOMContentLoaded", () => {
     html = lines.join("\n");
 
     html = html.replace(/\$\$\n*([\s\S]*?)\n*\$\$/g, '<div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--panel-border); padding: 8px; border-radius: 8px; font-family: monospace; text-align: center; margin: 8px 0; color: var(--secondary); font-size: 0.85rem;">$1</div>');
-    html = html.replace(/\$([^\$\n]+)\$/g, '<code style="font-family: monospace; background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 4px; color: var(--secondary); font-size: 0.8rem;">$1</code>');
+    html = html.replace(/`([^`\n]+)`/g, '<code style="font-family: monospace; background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 4px; color: var(--secondary); font-size: 0.8rem;">$1</code>');
     html = html.replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--panel-border); margin: 12px 0;">');
 
     return html;

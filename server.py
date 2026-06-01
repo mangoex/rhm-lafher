@@ -1759,57 +1759,66 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 )
 
             # Generate local markdown breakdown as fallback
-            fa_status = f"Sí, activo ({fa_pct:.0f}%): Sueldo Nominal $\\times$ {fa_pct:.1f}% = ${fondo_ahorro:,.2f}" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
+            fa_status = f"Sí, activo (`={fa_pct:.0f}%`): `=Sueldo_Nominal * {fa_pct / 100:.2f}` que equivale a **${fondo_ahorro:,.2f}**" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
             fi_aguinaldo = aguinaldo / 365.0
             fi_prima = (vac * (prima / 100.0)) / 365.0
             
-            local_desglose = f"""### 🤖 Explicación del Cálculo de Nómina Local (Offline)
+            local_desglose = f"""### 📝 Explicación del Cálculo de Nómina (Offline)
 
-*Nota: No hay una clave de API de Gemini válida configurada, por lo que se muestra el cálculo matemático local.*
+*Nota: No hay una clave de API de Gemini válida configurada en la base de datos, por lo que se muestra el desglose matemático contable estándar.*
 
 **Colaborador:** {nombre} (Código: {cod})  
 **Fecha de Ingreso:** {ingreso_str}  
-**Antigüedad:** {years_of_labores:.2f} años ({vac} días de vacaciones según LFT)  
+**Antigüedad:** {years_of_labores:.2f} años ({vac} días de vacaciones correspondientes según la LFT)  
 
 ---
 
 #### 1. Esquema Nominal IMSS (Base Fiscal)
-- **Factor de Integración (FI):**
-  $$\\text{{FI}} = 1 + \\frac{{\\text{{Aguinaldo}} ({aguinaldo:.0f} \\text{{ días}})}}{{365}} + \\frac{{\\text{{Vacaciones}} ({vac} \\text{{ días}}) \\times \\text{{Prima}} ({prima:.0f}\\%)}}{{365}}$$
-  $$\\text{{FI}} = 1 + {fi_aguinaldo:.4f} + {fi_prima:.4f} = {fi:.4f}$$
-- **Salario Diario Integrado (SDI):**
-  $$\\text{{SDI}} = \\text{{Salario Diario}} (\\${salario_diario:,.2f}) \\times \\text{{FI}} ({fi:.4f}) = \\${sdi:,.2f}$$
-- **Sueldo Nominal Mensual:**
-  $$\\text{{Sueldo Nominal}} = \\text{{Salario Diario}} (\\${salario_diario:,.2f}) \\times \\text{{Días Mes}} ({dias_mes:.1f}) = \\${sueldo_nominal:,.2f}$$
-- **Premios (10% de SDI):**
-  - **Puntualidad:** $\\${puntualidad:,.2f}$
-  - **Asistencia:** $\\${asistencia:,.2f}$
-- **Vales de Despensa:**
-  $$\\text{{Vales}} = \\text{{UMA}} (\\${uma:,.2f}) \\times \\text{{Vales\\%}} ({vales_pct:.0f}\\%) \\times \\text{{Días Mes}} ({dias_mes:.1f}) = \\${vales_despensa:,.2f}$$
-- **Fondo de Ahorro:** {fa_status}
-- **Total Percepciones Mensuales:** $\\${percepcion_sueldos:,.2f}$
+* **Factor de Integración (FI):**  
+  Fórmula Excel: `=1 + (Días_Aguinaldo / 365) + (Días_Vacaciones * Prima_Vacacional / 365)`  
+  Cálculo: `=1 + ({aguinaldo:.0f} / 365) + ({vac} * {prima / 100:.2f} / 365)`  
+  Resultado: `{fi:.4f}`
+* **Salario Diario Integrado (SDI):**  
+  Fórmula Excel: `=Salario_Diario * Factor_Integracion`  
+  Cálculo: `=${salario_diario:,.2f} * {fi:.4f}`  
+  Resultado: **${sdi:,.2f}** (Base de cotización ante el IMSS)
+* **Sueldo Nominal Mensual:**  
+  Fórmula Excel: `=Salario_Diario * Días_del_Mes`  
+  Cálculo: `=${salario_diario:,.2f} * {dias_mes:.1f}`  
+  Resultado: **${sueldo_nominal:,.2f}**
+* **Premios de Asistencia y Puntualidad (10% del SDI mensual cada uno):**  
+  * **Puntualidad:** **${puntualidad:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Asistencia:** **${asistencia:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+* **Vales de Despensa:**  
+  Fórmula Excel: `=UMA * Porcentaje_Vales * Días_del_Mes`  
+  Cálculo: `=${uma:,.2f} * {vales_pct / 100:.2f} * {dias_mes:.1f}`  
+  Resultado: **${vales_despensa:,.2f}** (Exento del IMSS por estar dentro del límite del 40% de la UMA)
+* **Fondo de Ahorro:** {fa_status}
+* **Total Percepciones Mensuales:** **${percepcion_sueldos:,.2f}**
 
 ---
 
-#### 2. Otros Ingresos (Esquema Mixto)
-- Asimilados: $\\${asimilados:,.2f}$ (Mensual)
-- Gasolina: $\\${gasolina:,.2f}$ (Mensual)
-- Pago Socio: $\\${socio:,.2f}$ (Mensual)
-- Efectivo: $\\${efectivo:,.2f}$ (Mensual)
-- Facturado: $\\${facturado:,.2f}$ (Mensual)
-- **Total Otros Ingresos:** $\\${total_otros:,.2f}$ (Mensual)
+#### 2. Otros Conceptos (Esquema Mixto / Adicionales)
+* Honorarios Asimilados: `${asimilados:,.2f}` (Mensual)
+* Gasolina/Combustible: `${gasolina:,.2f}` (Mensual)
+* Pago Socio: `${socio:,.2f}` (Mensual)
+* Pago en Efectivo: `${efectivo:,.2f}` (Mensual)
+* Pago Facturado: `${facturado:,.2f}` (Mensual)
+* **Total de Otros Conceptos:** **${total_otros:,.2f}** (Mensual)
 
 ---
 
-#### 3. Cálculo de Prenómina Quincenal
-- **Sueldo Bruto Mensual (Total):** $\\${bruto_mensual:,.2f}$
-- **Sueldo Bruto Quincenal:** $\\${bruto_quincenal:,.2f}$
-- **Ajustes / Descuentos por Incidencias:**
-  - **Faltas ({faltas} días):** Descuento de $\\${descuento_faltas:,.2f}$ (basado en la fórmula: $\\frac{{\\text{{Bruto Quincenal}}}}{{15}} \\times {faltas}$)
-  - **Descuento Adicional:** $\\${descuento_adicional:,.2f}$
-  - **Deuda Carro (Deducción):** $\\${deuda_carro:,.2f}$
-- **Sueldo Neto Quincenal Final:**
-  $$\\text{{Neto}} = \\text{{Bruto Quincenal}} (\\${bruto_quincenal:,.2f}) - \\text{{Faltas}} (\\${descuento_faltas:,.2f}) - \\text{{Descuento Adicional}} (\\${descuento_adicional:,.2f}) - \\text{{Deuda Carro}} (\\${deuda_carro:,.2f}) = \\${neto_quincenal:,.2f}$$
+#### 3. Cálculo de Prenómina Quincenal (Pago Actual)
+* **Sueldo Bruto Mensual (Base Total):** **${bruto_mensual:,.2f}** (Sueldo Nominal + Otros Conceptos)
+* **Sueldo Bruto Quincenal:** **${bruto_quincenal:,.2f}** (Fórmula Excel: `=Sueldo_Bruto_Mensual / 2`)
+* **Ajustes, Faltas y Descuentos en la Quincena:**
+  * **Descuento por Faltas ({faltas} días):** Deducción de **${descuento_faltas:,.2f}** (Fórmula Excel: `=(Sueldo_Bruto_Quincenal / 15) * Faltas` ➡️ `=({bruto_quincenal:.2f} / 15) * {faltas}`)
+  * **Descuento Adicional:** **${descuento_adicional:,.2f}**
+  * **Deducción por Carro:** **${deuda_carro:,.2f}**
+* **Sueldo Neto Quincenal Final a Pagar:**  
+  Fórmula Excel: `=Sueldo_Bruto_Quincenal - Descuento_Faltas - Descuento_Adicional - Deducción_Carro`  
+  Cálculo: `=${bruto_quincenal:,.2f} - ${descuento_faltas:,.2f} - ${descuento_adicional:,.2f} - ${deuda_carro:,.2f}`  
+  Resultado: **${neto_quincenal:,.2f}**
 """
 
             # Try to use Gemini API if key is present
@@ -1819,27 +1828,41 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # Build Gemini Prompt
-            system_prompt = f"""Eres un experto en contabilidad de nómina mexicana y leyes laborales de la LFT (Ley Federal del Trabajo).
-Tu tarea es explicar de manera clara, didáctica y detallada el cálculo de la prenómina quincenal de un colaborador, basándote en las siguientes constantes de configuración del sistema y en las reglas de cálculo de la empresa.
+            system_prompt = f"""Eres un asesor contable y fiscal experto en nómina mexicana, seguridad social (IMSS) y la Ley Federal del Trabajo (LFT).
+Tu tarea es explicar de manera clara, descriptiva, profesional y muy amigable el cálculo de la prenómina quincenal de un colaborador. 
+
+La audiencia son CONTADORES y administradores del sistema, por lo que debes usar terminología contable correcta (ej. SBC, salario integrado, exentos, gravados, LFT, UMA), pero la explicación debe ser TEXTUAL y fluida, no un simple código matemático frío.
+
+REGLAS DE COMUNICACIÓN Y FORMATO (ESTRICTAS):
+1. **PROHIBIDO EL USO DE LATEX:** No uses notación LaTeX ni delimitadores de dólar como "$$ \\text{{FI}} = ... $$" o similares. Los contadores no entienden LaTeX y rompe la visualización.
+2. **FÓRMULAS ESTILO EXCEL:** Muestra todas las fórmulas de cálculo utilizando el formato y funciones estándar de Microsoft Excel (ej. `=SUMA(...)`, `=REDONDEAR(...)`, `=1+(15/365)+(12*0.25/365)` o `=Salario_Diario * Factor_Integracion`).
+3. **RENDERIZADO DE CÓDIGO (BACKTICKS):** Envuelve todas las fórmulas y nombres de celdas/conceptos clave de Excel en comillas invertidas (backticks) simples, por ejemplo: `FI = 1 + (Días_Aguinaldo / 365) + (Días_Vacaciones * Prima_Vacacional / 365)`. Esto las resaltará como código de Excel en la interfaz.
+4. **EXPLICACIÓN TEXTUAL DETALLADA:** No te limites a dar números. Explica de forma textual de dónde proviene cada número y el fundamento básico (ej: por qué las faltas descuentan de manera proporcional el sueldo quincenal, o por qué los vales de despensa están exentos hasta el 40% de la UMA).
+5. **CERO VARIABLES DE PROGRAMACIÓN:** No utilices nombres de variables del backend (como `emp_data`, `salario_diario_col`, `null`, `float`, etc.). Usa los nombres reales de los conceptos contables en español.
+6. **FORMATO DE MONEDA:** Utiliza siempre formato de pesos mexicanos limpio y legible (ej: **$10,250.00**).
 
 CONSTANTES DE CONFIGURACIÓN DEL SISTEMA:
 - UMA (2026): ${uma:.2f}
-- % exento de Vales de Despensa: {vales_pct}% de la UMA
+- % exento de Vales de Despensa: {vales_pct}% de la UMA por día promedio mensual (limite exento: 40% de la UMA)
 - Días promedio del mes: {dias_mes}
-- % Fondo de Ahorro: {fa_pct}%
-- Días mínimos de Aguinaldo: {aguinaldo}
+- % Fondo de Ahorro: {fa_pct}% del sueldo nominal (si aplica)
+- Días de Aguinaldo del contrato: {aguinaldo}
 - % Prima Vacacional: {prima}%
 
 REGLAS DE CÁLCULO DE LA EMPRESA APLICADAS:
 {rules_to_use}
 
-Cuando el usuario pida la explicación inicial o te pregunte sobre el colaborador, detalla paso a paso las operaciones matemáticas y cómo se llega a cada resultado.
-Usa Markdown y tablas limpias para presentar la información. Presenta los números con formato de moneda.
+ESTRUCTURA SUGERIDA DE RESPUESTA:
+- **Resumen del Colaborador:** Párrafo introductorio amigable con el puesto, ingreso, antigüedad y días de vacaciones de LFT.
+- **1. Base IMSS y Salario Diario Integrado:** Explicar el Factor de Integración con su fórmula Excel y el cálculo del SDI.
+- **2. Percepciones Nominales Mensuales:** Listar e indicar las fórmulas de Excel para Sueldo Nominal, Premios de Asistencia/Puntualidad y Vales de Despensa.
+- **3. Otros Conceptos Adicionales:** Honorarios asimilados, efectivo, socio, etc.
+- **4. Cálculo de la Quincena Final:** Mostrar cómo se llega del bruto mensual al quincenal, detallar el descuento de faltas de forma textual con su cálculo, y restar deducciones para obtener el Neto Quincenal a pagar.
 
 INSTRUCCIONES DE ACTUALIZACIÓN DE BASE DE DATOS (INCIDENCIAS):
 El usuario no solo te hará preguntas, sino que también puede darte instrucciones directas para modificar la prenómina de este colaborador en particular. Por ejemplo: "tuvo 2 faltas", "quítale el bono de puntualidad", "descuéntale $500 adicionales", "restablecer bono de asistencia", etc.
-Si detectas que el usuario te está pidiendo aplicar cambios o incidencias al colaborador actual, debes realizar lo siguiente:
-1. Explica brevemente en tu respuesta que vas a aplicar los cambios indicados en el sistema (por ejemplo: "Entendido, procedo a registrar 2 faltas y suspender el premio de puntualidad en el archivo Excel...").
+Si de la consulta se infiere que debes realizar cambios o registrar incidencias para el colaborador actual en el sistema, procede así:
+1. Explica brevemente en tu respuesta contable qué cambios vas a registrar (ej: "Entendido, procedo a registrar 2 faltas y suspender el premio de puntualidad en el archivo Excel...").
 2. Incluye al final de tu respuesta (después de todo el texto descriptivo) un bloque de código JSON con formato exacto que contenga las actualizaciones. Debe ser exactamente de la siguiente forma:
 
 ```json
@@ -1855,7 +1878,7 @@ Si detectas que el usuario te está pidiendo aplicar cambios o incidencias al co
 ```
 
 IMPORTANTE:
-- Solo incluye este bloque JSON si el mensaje del usuario representa una instrucción clara de cambio de datos. Si solo es una consulta de información o una pregunta general, NO incluyes el bloque "apply_changes".
+- Solo incluye este bloque JSON si el mensaje del usuario representa una instrucción clara de cambio de datos. Si solo es una consulta o una pregunta contable general, NO incluyes el bloque "apply_changes".
 - El bloque JSON debe estar en una sección separada al final con la sintaxis de código de markdown de triple backtick.
 """
 
