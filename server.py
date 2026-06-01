@@ -366,14 +366,23 @@ def recompile_active_period_incidences(wb, schema):
     agg = {}
     if "Incidencias" in wb.sheetnames:
         ws_inc = wb["Incidencias"]
-        for r in range(2, ws_inc.max_row + 1):
-            date_val = ws_inc.cell(row=r, column=1).value
+        # Batch load all rows in memory (tuple format: 0-indexed)
+        rows = list(ws_inc.iter_rows(min_row=2, max_row=ws_inc.max_row, values_only=True))
+        
+        for r_idx, row_cells in enumerate(rows, start=2):
+            if not row_cells:
+                continue
+            
+            # Ensure we have at least column 1 value (date_val)
+            date_val = row_cells[0] if len(row_cells) >= 1 else None
             if not date_val:
                 continue
+                
             try:
                 row_date = parse_date_robust(date_val)
                 if row_date and start_date <= row_date <= end_date:
-                    c_id = clean_employee_id(ws_inc.cell(row=r, column=2).value)
+                    cod_val = row_cells[1] if len(row_cells) >= 2 else None
+                    c_id = clean_employee_id(cod_val)
                     if c_id not in agg:
                         agg[c_id] = {
                             "faltas": 0,
@@ -393,51 +402,72 @@ def recompile_active_period_incidences(wb, schema):
                             if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
                                 agg[c_id][col.get("field")] = 0.0
                                 
-                    agg[c_id]["faltas"] += int(ws_inc.cell(row=r, column=4).value or 0)
-                    agg[c_id]["retardos"] += int(ws_inc.cell(row=r, column=5).value or 0)
-                    agg[c_id]["vacaciones"] += int(ws_inc.cell(row=r, column=6).value or 0)
-                    agg[c_id]["descuento_adicional"] += float(ws_inc.cell(row=r, column=7).value or 0.0)
-                    if ws_inc.cell(row=r, column=8).value == "NO":
+                    # Column 4 (index 3)
+                    faltas_val = row_cells[3] if len(row_cells) >= 4 else 0
+                    agg[c_id]["faltas"] += int(faltas_val or 0)
+                    
+                    # Column 5 (index 4)
+                    retardos_val = row_cells[4] if len(row_cells) >= 5 else 0
+                    agg[c_id]["retardos"] += int(retardos_val or 0)
+                    
+                    # Column 6 (index 5)
+                    vacaciones_val = row_cells[5] if len(row_cells) >= 6 else 0
+                    agg[c_id]["vacaciones"] += int(vacaciones_val or 0)
+                    
+                    # Column 7 (index 6)
+                    desc_val = row_cells[6] if len(row_cells) >= 7 else 0.0
+                    agg[c_id]["descuento_adicional"] += float(desc_val or 0.0)
+                    
+                    # Column 8 (index 7)
+                    punt_val = row_cells[7] if len(row_cells) >= 8 else None
+                    if punt_val == "NO":
                         agg[c_id]["puntualidad"] = "NO"
-                    if ws_inc.cell(row=r, column=9).value == "NO":
+                        
+                    # Column 9 (index 8)
+                    asist_val = row_cells[8] if len(row_cells) >= 9 else None
+                    if asist_val == "NO":
                         agg[c_id]["asistencia"] = "NO"
-                    obs = str(ws_inc.cell(row=r, column=10).value or "").strip()
+                        
+                    # Column 10 (index 9)
+                    obs_val = row_cells[9] if len(row_cells) >= 10 else ""
+                    obs = str(obs_val or "").strip()
                     if obs:
                         agg[c_id]["observaciones"].append(obs)
                         
                     # Overrides (columns 11 to 15)
-                    if ws_inc.max_column >= 11 and ws_inc.cell(row=r, column=11).value == "SI":
+                    max_cols = len(row_cells)
+                    if max_cols >= 11 and row_cells[10] == "SI":
                         agg[c_id]["forzar_asistencia"] = "SI"
-                    if ws_inc.max_column >= 12 and ws_inc.cell(row=r, column=12).value == "SI":
+                    if max_cols >= 12 and row_cells[11] == "SI":
                         agg[c_id]["forzar_puntualidad"] = "SI"
-                    if ws_inc.max_column >= 13 and ws_inc.cell(row=r, column=13).value == "SI":
+                    if max_cols >= 13 and row_cells[12] == "SI":
                         agg[c_id]["forzar_vales"] = "SI"
                     
-                    if ws_inc.max_column >= 14:
-                        aj_vales = ws_inc.cell(row=r, column=14).value
+                    if max_cols >= 14:
+                        aj_vales = row_cells[13]
                         if aj_vales is not None and str(aj_vales).strip() != "":
                             try:
                                 agg[c_id]["ajuste_vales"] = float(aj_vales)
                             except ValueError:
                                 pass
                                 
-                    if ws_inc.max_column >= 15:
-                        aj_fa = ws_inc.cell(row=r, column=15).value
+                    if max_cols >= 15:
+                        aj_fa = row_cells[14]
                         if aj_fa is not None and str(aj_fa).strip() != "":
                             try:
                                 agg[c_id]["ajuste_fondo_ahorro"] = float(aj_fa)
                             except ValueError:
                                 pass
                         
-                    # Sum up dynamic deduction columns starting from index 16
+                    # Sum up dynamic deduction columns starting from index 16 (index 15 in 0-indexed)
                     col_idx = 16
                     for col in schema.get("columns", []):
                         if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                            if col_idx <= ws_inc.max_column:
-                                agg[c_id][col.get("field")] += float(ws_inc.cell(row=r, column=col_idx).value or 0.0)
+                            if col_idx <= max_cols:
+                                agg[c_id][col.get("field")] += float(row_cells[col_idx - 1] or 0.0)
                                 col_idx += 1
             except Exception as e:
-                print(f"Error compiling incidence row {r}: {e}")
+                print(f"Error compiling incidence row {r_idx}: {e}")
                 
     nombre_col = get_field_index(schema, "nombre")
     id_col = get_field_index(schema, "id")
