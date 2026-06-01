@@ -72,7 +72,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const dbIndicator = document.getElementById("db-status-indicator");
     if (dbIndicator) {
       dbIndicator.className = "badge warning";
-      dbIndicator.innerHTML = '<i data-lucide="refresh-cw" style="width: 14px; height: 14px; animation: spin 1.5s linear infinite;"></i> Conectando...';
+      dbIndicator.innerHTML = '<i data-lucide="refresh-cw" style="width: 16px; height: 16px; animation: spin 1.5s linear infinite;"></i>';
+      dbIndicator.title = "Conectando con base de datos...";
       if (window.lucide) lucide.createIcons();
     }
 
@@ -116,7 +117,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (dbIndicator) {
           dbIndicator.className = "badge success";
-          dbIndicator.innerHTML = '<i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado';
+          dbIndicator.innerHTML = '<i data-lucide="database" style="width: 16px; height: 16px;"></i>';
+          dbIndicator.title = "Base de datos Excel conectada";
         }
         
         const periodSelect = document.getElementById("period-select");
@@ -131,7 +133,8 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Error cargando base de datos Excel:", err);
         if (dbIndicator) {
           dbIndicator.className = "badge danger";
-          dbIndicator.innerHTML = '<i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Desconectado';
+          dbIndicator.innerHTML = '<i data-lucide="database" style="width: 16px; height: 16px;"></i>';
+          dbIndicator.title = "Base de datos Excel desconectada / bloqueada";
         }
         showToast("Error al conectar con la base de datos Excel. Asegúrate de cerrar el archivo Excel si lo tienes abierto.", "error");
         if (window.lucide) lucide.createIcons();
@@ -1608,14 +1611,8 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Header user info
     const headerUserInfo = document.getElementById("header-user-info");
-    const headerUsername = document.getElementById("header-username");
-    if (headerUserInfo && headerUsername) {
-      headerUsername.textContent = `${username} (${role === 'admin' ? 'Admin' : 'Capturista'})`;
+    if (headerUserInfo) {
       headerUserInfo.style.display = "flex";
-      headerUsername.style.cursor = "default";
-      headerUsername.style.textDecoration = "none";
-      headerUsername.style.color = "var(--text-color)";
-      headerUsername.title = "";
     }
 
     // Role restrictions

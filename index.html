@@ -39,7 +39,9 @@
     </nav>
     
     <div class="header-actions">
-      <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: flex; align-items: center; gap: 0.25rem;"><i data-lucide="database" style="width: 14px; height: 14px;"></i> BD: Excel Conectado</div>
+      <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; padding: 0;" title="Base de Datos Conectada">
+        <i data-lucide="database" style="width: 16px; height: 16px;"></i>
+      </div>
       <div id="period-container" style="display: flex; align-items: center; gap: 6px; margin-right: 0.5rem;">
         <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Periodo:</span>
         <select id="period-select" style="border: 1px solid var(--panel-border); background: var(--panel-bg); color: var(--text-color); cursor: pointer; padding: 4px 8px; font-size: 0.85rem; font-weight: 600; border-radius: var(--border-radius); outline: none;">
@@ -74,7 +76,6 @@
         <i data-lucide="moon" class="moon-icon" style="display:none;"></i>
       </button>
       <div id="header-user-info" style="display: none; align-items: center; gap: 0.5rem; margin-left: 0.5rem; border-left: 1px solid var(--panel-border); padding-left: 0.75rem;">
-        <span id="header-username" style="font-size: 0.85rem; font-weight: 600; color: var(--text-color);">Admin</span>
         <button id="btn-logout" class="theme-toggle" title="Cerrar Sesión" style="color: var(--error); margin: 0; padding: 4px; display: flex; align-items: center; justify-content: center;">
           <i data-lucide="log-out" style="width: 16px; height: 16px;"></i>
         </button>
