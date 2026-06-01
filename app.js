@@ -983,6 +983,21 @@ document.addEventListener("DOMContentLoaded", () => {
       const aSel = document.getElementById("inc-asistencia");
       if (aSel) aSel.value = inc.asistencia || "SI";
       
+      const forzarAsistEl = document.getElementById("inc-forzar-asistencia");
+      if (forzarAsistEl) forzarAsistEl.value = inc.forzar_asistencia || "NO";
+      
+      const forzarPuntEl = document.getElementById("inc-forzar-puntualidad");
+      if (forzarPuntEl) forzarPuntEl.value = inc.forzar_puntualidad || "NO";
+      
+      const forzarValesEl = document.getElementById("inc-forzar-vales");
+      if (forzarValesEl) forzarValesEl.value = inc.forzar_vales || "NO";
+      
+      const ajusteValesEl = document.getElementById("inc-ajuste-vales");
+      if (ajusteValesEl) ajusteValesEl.value = inc.ajuste_vales !== null && inc.ajuste_vales !== undefined ? inc.ajuste_vales : "";
+      
+      const ajusteFaEl = document.getElementById("inc-ajuste-fondo-ahorro");
+      if (ajusteFaEl) ajusteFaEl.value = inc.ajuste_fondo_ahorro !== null && inc.ajuste_fondo_ahorro !== undefined ? inc.ajuste_fondo_ahorro : "";
+
       // Dynamic deductions
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
@@ -1006,6 +1021,21 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const aSel = document.getElementById("inc-asistencia");
       if (aSel) aSel.value = "SI";
+      
+      const forzarAsistEl = document.getElementById("inc-forzar-asistencia");
+      if (forzarAsistEl) forzarAsistEl.value = "NO";
+      
+      const forzarPuntEl = document.getElementById("inc-forzar-puntualidad");
+      if (forzarPuntEl) forzarPuntEl.value = "NO";
+      
+      const forzarValesEl = document.getElementById("inc-forzar-vales");
+      if (forzarValesEl) forzarValesEl.value = "NO";
+      
+      const ajusteValesEl = document.getElementById("inc-ajuste-vales");
+      if (ajusteValesEl) ajusteValesEl.value = "";
+      
+      const ajusteFaEl = document.getElementById("inc-ajuste-fondo-ahorro");
+      if (ajusteFaEl) ajusteFaEl.value = "";
       
       // Dynamic deductions
       if (state.schema && state.schema.columns) {
@@ -1033,6 +1063,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const observaciones = document.getElementById("inc-observaciones").value.trim();
       const puntualidad = document.getElementById("inc-puntualidad") ? document.getElementById("inc-puntualidad").value : "SI";
       const asistencia = document.getElementById("inc-asistencia") ? document.getElementById("inc-asistencia").value : "SI";
+      
+      const forzarAsistencia = document.getElementById("inc-forzar-asistencia") ? document.getElementById("inc-forzar-asistencia").value : "NO";
+      const forzarPuntualidad = document.getElementById("inc-forzar-puntualidad") ? document.getElementById("inc-forzar-puntualidad").value : "NO";
+      const forzarVales = document.getElementById("inc-forzar-vales") ? document.getElementById("inc-forzar-vales").value : "NO";
+      const ajusteVales = document.getElementById("inc-ajuste-vales") ? document.getElementById("inc-ajuste-vales").value.trim() : "";
+      const ajusteFondoAhorro = document.getElementById("inc-ajuste-fondo-ahorro") ? document.getElementById("inc-ajuste-fondo-ahorro").value.trim() : "";
 
       const dateVal = document.getElementById("inc-fecha") ? document.getElementById("inc-fecha").value : "";
       const payload = {
@@ -1043,7 +1079,12 @@ document.addEventListener("DOMContentLoaded", () => {
         vacaciones,
         observaciones,
         puntualidad,
-        asistencia
+        asistencia,
+        forzar_asistencia: forzarAsistencia,
+        forzar_puntualidad: forzarPuntualidad,
+        forzar_vales: forzarVales,
+        ajuste_vales: ajusteVales,
+        ajuste_fondo_ahorro: ajusteFondoAhorro
       };
 
       // Gather dynamic deductions
@@ -1096,9 +1137,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 11. View Rendering - PRE-PAYROLL (DYNAMIC EXCEL SHEET VIEW)
   function renderPrenomina() {
-    const tbody = document.getElementById("prenomina-table-body");
-    if (!tbody || !state.schema) return;
-    tbody.innerHTML = "";
+    const table = document.querySelector(".prenomina-table");
+    if (!table || !state.schema) return;
 
     const cols = state.schema.columns;
     const nominalFields = [
@@ -1114,22 +1154,44 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
     const nominalCols = cols.filter(c => nominalFields.includes(c.field));
     const otherCols = cols.filter(c => c.category === "others");
+    const deductionCols = cols.filter(c => c.category === "deduction");
 
-    // Dynamic colspan update in main layout header
-    const mainNominalHeader = document.getElementById("header-nominal-colspan");
-    if (mainNominalHeader) mainNominalHeader.colSpan = nominalCols.length;
+    // Rebuild the thead dynamically
+    let theadHtml = `
+      <thead>
+        <tr>
+          <th rowspan="2">No.</th>
+          <th rowspan="2">Cod.</th>
+          <th rowspan="2">Empresa</th>
+          <th rowspan="2">Nombre Completo</th>
+          <th rowspan="2">Fecha Ingreso</th>
+          <th rowspan="2">Antigüedad (Años)</th>
+          <th rowspan="2">F.A.?</th>
+          <th colspan="${nominalCols.length}">Esquema Nominal IMSS (Cálculos Base)</th>
+          <th colspan="${otherCols.length + 1}">Otros Conceptos (Esquemas Base)</th>
+          <th rowspan="2">Sueldo Bruto Mensual</th>
+          <th rowspan="2">Sueldo Bruto Quincenal</th>
+          <th rowspan="2">Descuento Incidencia</th>
+          ${deductionCols.map(c => `<th rowspan="2">${c.header || c.label}</th>`).join("")}
+          <th rowspan="2">Sueldo Neto Quincenal</th>
+          <th rowspan="2">Observaciones</th>
+        </tr>
+        <tr>
+          ${nominalCols.map(c => `<th>${c.header || c.label}</th>`).join("")}
+          ${otherCols.map(c => `<th>${c.header || c.label}</th>`).join("")}
+          <th>Total Otros</th>
+        </tr>
+      </thead>
+    `;
     
-    const mainOthersHeader = document.getElementById("header-otros-colspan");
-    if (mainOthersHeader) mainOthersHeader.colSpan = otherCols.length + 1; // including calculated Total Otros column
-
-    // Redraw subheaders row dynamically
-    const subheaderRow = document.getElementById("prenomina-subheaders-row");
-    if (subheaderRow) {
-      subheaderRow.innerHTML = "";
-      nominalCols.forEach(c => { subheaderRow.innerHTML += `<th>${c.header || c.label}</th>`; });
-      otherCols.forEach(c => { subheaderRow.innerHTML += `<th>${c.header || c.label}</th>`; });
-      subheaderRow.innerHTML += `<th>Total Otros</th>`;
+    const originalThead = table.querySelector("thead");
+    if (originalThead) {
+      originalThead.outerHTML = theadHtml;
     }
+
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
 
     const totals = {
       sueldoNominal: 0,
@@ -1138,13 +1200,13 @@ document.addEventListener("DOMContentLoaded", () => {
       brutoMensual: 0,
       brutoQuincenal: 0,
       descuentoFaltas: 0,
-      descuentoAdicional: 0,
       netoQuincenal: 0
     };
 
     // Initialize all dynamic totals
     nominalCols.forEach(c => totals[c.field] = 0);
     otherCols.forEach(c => totals[c.field] = 0);
+    deductionCols.forEach(c => totals[c.field] = 0);
 
     let idx = 1;
     state.employees.forEach(emp => {
@@ -1156,7 +1218,6 @@ document.addEventListener("DOMContentLoaded", () => {
         totals.brutoMensual += calc.sueldoBrutoMensual;
         totals.brutoQuincenal += calc.sueldoBrutoQuincenalNormal;
         totals.descuentoFaltas += calc.descuentoFaltas;
-        totals.descuentoAdicional += calc.descuentoAdicional;
         totals.netoQuincenal += calc.sueldoNetoQuincenal;
 
         nominalCols.forEach(c => {
@@ -1165,6 +1226,10 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         otherCols.forEach(c => {
+          totals[c.field] += emp[c.field] || 0;
+        });
+
+        deductionCols.forEach(c => {
           totals[c.field] += emp[c.field] || 0;
         });
       }
@@ -1214,7 +1279,15 @@ document.addEventListener("DOMContentLoaded", () => {
           <td style="font-weight: 600;">${calc.sueldoBrutoMensual > 0 ? formatNumber(calc.sueldoBrutoMensual) : '-'}</td>
           <td>${calc.sueldoBrutoQuincenalNormal > 0 ? formatNumber(calc.sueldoBrutoQuincenalNormal) : '-'}</td>
           <td class="${calc.descuentoFaltas > 0 ? 'overridden-cell' : ''}">${calc.descuentoFaltas > 0 ? formatNumber(calc.descuentoFaltas) : '-'}</td>
-          <td class="${calc.descuentoAdicional > 0 ? 'overridden-cell' : ''}">${calc.descuentoAdicional > 0 ? formatNumber(calc.descuentoAdicional) : '-'}</td>
+      `;
+
+      // Render dynamic deduction columns
+      deductionCols.forEach(c => {
+        const val = emp[c.field] || 0.0;
+        rowHtml += `<td class="${val > 0 ? 'overridden-cell' : ''}">${val > 0 ? formatNumber(val) : '-'}</td>`;
+      });
+
+      rowHtml += `
           <td style="font-weight: 700; color: #fff; background: rgba(99,102,241,0.05);">${calc.sueldoNetoQuincenal > 0 ? formatNumber(calc.sueldoNetoQuincenal) : '-'}</td>
           <td class="align-left" style="font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${emp.observaciones || ''}">${emp.observaciones || '-'}</td>
         </tr>
@@ -1245,7 +1318,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <td>${formatNumber(totals.brutoMensual)}</td>
       <td>${formatNumber(totals.brutoQuincenal)}</td>
       <td>${formatNumber(totals.descuentoFaltas)}</td>
-      <td>${formatNumber(totals.descuentoAdicional)}</td>
+      ${deductionCols.map(c => `<td>${totals[c.field] > 0 ? formatNumber(totals[c.field]) : '-'}</td>`).join("")}
       <td>${formatNumber(totals.netoQuincenal)}</td>
       <td>-</td>
     </tr>

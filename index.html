@@ -295,6 +295,40 @@
                     <div id="incidences-dynamic-fields" style="display: contents;">
                       <!-- Rendered dynamically from schema.json columns in category 'deduction' -->
                     </div>
+                    
+                    <!-- Secciones de Ajustes Contables Contempladas en Fase 2 -->
+                    <div class="form-group full-width" style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 1rem; margin-bottom: -0.5rem;">
+                      <h4 style="color: var(--secondary); margin-bottom: 0rem; display: flex; align-items: center; gap: 6px;"><i data-lucide="sliders" style="width: 16px; height: 16px;"></i> Ajustes Contables y Anulaciones (Overrides)</h4>
+                    </div>
+                    <div class="form-group">
+                      <label for="inc-forzar-asistencia">Forzar Premio Asistencia</label>
+                      <select id="inc-forzar-asistencia" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                        <option value="NO">Por defecto (Descontar si faltó)</option>
+                        <option value="SI">Forzar pago completo</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="inc-forzar-puntualidad">Forzar Premio Puntualidad</label>
+                      <select id="inc-forzar-puntualidad" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                        <option value="NO">Por defecto (Descontar si retardos >= 3)</option>
+                        <option value="SI">Forzar pago completo</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="inc-forzar-vales">Forzar Vales Completos</label>
+                      <select id="inc-forzar-vales" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                        <option value="NO">Por defecto (Proporcional a faltas)</option>
+                        <option value="SI">Forzar pago completo</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="inc-ajuste-vales">Monto de Ajuste Vales ($)</label>
+                      <input type="number" id="inc-ajuste-vales" step="0.01" min="0" placeholder="Ej. 1200.00" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                    </div>
+                    <div class="form-group">
+                      <label for="inc-ajuste-fondo-ahorro">Monto de Ajuste Fondo Ahorro ($)</label>
+                      <input type="number" id="inc-ajuste-fondo-ahorro" step="0.01" min="0" placeholder="Ej. 800.00" style="width: 100%; border-radius: var(--border-radius); border: 1px solid var(--panel-border); background-color: var(--input-bg); color: var(--text-color); padding: 10px; box-sizing: border-box; outline: none;">
+                    </div>
                     <div class="form-group full-width">
                       <label for="inc-observaciones">Observaciones / Justificación de Prenómina</label>
                       <textarea id="inc-observaciones" rows="3" placeholder="Ej. Descontar 1 día por retardos / Validado con jefe directo."></textarea>
