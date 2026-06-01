@@ -105,7 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (badge) {
           if (data.configured) {
             badge.className = "badge success";
-            badge.innerHTML = `<i data-lucide="check-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Conectado / Clave Guardada`;
+            badge.innerHTML = `<span class="pulse-dot success" id="ai-status-pulse"></span> <span id="ai-status-text">Conectado / Clave Guardada</span>`;
             if (keyInput) {
               keyInput.value = "";
               keyInput.placeholder = "•••••••••••••••••••••••• (Clave Guardada)";
@@ -115,7 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (deleteBtn) deleteBtn.style.display = "flex";
           } else {
             badge.className = "badge danger";
-            badge.innerHTML = `<i data-lucide="x-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Sin Clave / Desconectado`;
+            badge.innerHTML = `<span class="pulse-dot danger" id="ai-status-pulse"></span> <span id="ai-status-text">Sin Clave / Desconectado</span>`;
             if (keyInput) {
               keyInput.value = "";
               keyInput.placeholder = "Introduce tu clave API...";
@@ -2089,10 +2089,10 @@ document.addEventListener("DOMContentLoaded", () => {
         
         tr.innerHTML = `
           <td><strong>${u.username}</strong> ${isSelf ? '<span class="badge info" style="font-size: 0.7rem; padding: 2px 6px; margin-left: 5px;">Tú</span>' : ''}</td>
-          <td><span class="badge ${u.role === 'admin' ? 'success' : 'secondary'}">${u.role === 'admin' ? 'Administrador' : 'Capturista'}</span></td>
+          <td><span class="user-badge ${u.role === 'admin' ? 'admin' : 'capturista'}">${u.role === 'admin' ? 'Administrador' : 'Capturista'}</span></td>
           <td style="text-align: center;">
             ${isSelf ? '-' : `
-              <button class="btn btn-sm btn-logout delete-user-btn" data-username="${u.username}" style="color: var(--danger); background: transparent; border: none; cursor: pointer; padding: 4px;" title="Eliminar usuario">
+              <button class="btn-delete-user-row delete-user-btn" data-username="${u.username}" title="Eliminar usuario">
                 <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
               </button>
             `}
