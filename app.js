@@ -1882,9 +1882,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnDownloadExcel = document.getElementById("btn-download-excel");
   if (btnDownloadExcel) {
     btnDownloadExcel.addEventListener("click", () => {
+      const token = localStorage.getItem("rhm_session_token") || "";
       const link = document.createElement("a");
-      link.href = "/api/download-excel";
-      link.download = "Nomina_ciega_respaldo.xlsx";
+      link.href = `/api/download-excel?token=${encodeURIComponent(token)}`;
+      // Do not set link.download so the browser respects the Content-Disposition header filename from the server
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

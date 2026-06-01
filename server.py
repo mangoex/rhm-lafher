@@ -1489,15 +1489,33 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Endpoint not found"}, 404)
 
     def get_session_user(self):
+        token = None
         auth_header = self.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        else:
+            # Fallback to query parameter 'token' for file downloads
+            try:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed.query)
+                token_list = params.get("token")
+                if token_list:
+                    token = token_list[0]
+            except Exception as e:
+                print("Error parsing token from query string:", e)
+                
+        if not token:
             return None
-        token = auth_header.split(" ")[1]
+            
         session = SESSIONS.get(token)
         if not session:
             return None
         if session["expiry"] < time.time():
-            del SESSIONS[token]
+            try:
+                del SESSIONS[token]
+            except KeyError:
+                pass
             return None
         return session
 
