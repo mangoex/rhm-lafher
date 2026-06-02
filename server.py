@@ -7,8 +7,9 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 import traceback
+import os
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", 8000))
 import sys
 
 # Resolve paths for PyInstaller standalone executables
@@ -3226,6 +3227,7 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     
                 # Parse apply_changes from response text
                 applied_changes = False
+                proposed_changes = None
                 try:
                     import re
                     # Robustly try to find a JSON block even if missing ```json
@@ -3415,13 +3417,9 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                                     "nombre": nombre_val or "",
                                     **existing_inc
                                 }
-                                save_incidence_to_excel(wb, incidence_data)
-                                
-                                # Recompile to update Hoja1
-                                recompile_active_period_incidences(wb, schema)
-                                
-                                save_workbook_agnostic(wb, excel_path)
-                                applied_changes = True
+                                # Phase 3: Do not apply automatically, return as proposed
+                                proposed_changes = incidence_data
+                                applied_changes = False
                             wb.close()
                 except PermissionError as pe:
                     try: wb.close()
@@ -3432,7 +3430,7 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     try: wb.close()
                     except: pass
 
-                self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes})
+                self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes, "proposed_changes": proposed_changes})
             except PermissionError as perm_e:
                 print("Excel file is locked during explain_payroll:", perm_e)
                 self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' estÃ¡ abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e intÃ©ntalo de nuevo."}, 500)

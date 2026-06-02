@@ -2397,7 +2397,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
         appendAssistantMessage(data.response);
 
-        if (data.applied_changes) {
+        if (data.proposed_changes) {
+          const confirmBox = document.createElement("div");
+          confirmBox.className = "chat-message assistant";
+          const changesJson = JSON.stringify(data.proposed_changes).replace(/'/g, "\\'");
+          confirmBox.innerHTML = `
+            <div style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-top: 10px;">
+              <strong>La IA propone los siguientes cambios en la pre-nómina:</strong>
+              <pre style="font-size: 0.85em; background: var(--bg-body); padding: 0.5rem; border-radius: 4px; overflow-x: auto;">${JSON.stringify(data.proposed_changes, null, 2)}</pre>
+              <button class="btn btn-primary" onclick='applyAIProposedChanges(${changesJson})'>Confirmar y Aplicar</button>
+            </div>
+          `;
+          if (messagesDiv) {
+             messagesDiv.appendChild(confirmBox);
+             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+          }
+        } else if (data.applied_changes) {
           showToast("Se aplicaron las incidencias solicitadas a través de la IA.", "success");
           state.selectedIncidenceEmployeeId = currentAIEmployeeId;
           loadState().then(() => {
@@ -2599,3 +2614,39 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 });
+
+window.applyAIProposedChanges = function(changes) {
+  if (!window.currentAIEmployeeId) return;
+  changes.employee_id = window.currentAIEmployeeId;
+  
+  fetch("/api/incidences", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes)
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.error) {
+      if (typeof showToast === 'function') showToast(res.error, "error");
+    } else {
+      if (typeof showToast === 'function') showToast("Cambios aplicados exitosamente", "success");
+      const messagesDiv = document.getElementById("ai-chat-messages");
+      if (messagesDiv) {
+         messagesDiv.innerHTML += `<div class="chat-message assistant" style="color: var(--success);"><p>¡Cambios aplicados en la nómina!</p></div>`;
+         messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+      if (typeof window.state !== 'undefined' && typeof window.loadState === 'function') {
+        window.state.selectedIncidenceEmployeeId = window.currentAIEmployeeId;
+        window.loadState().then(() => {
+          if (typeof window.selectIncidenceEmployee === 'function') {
+            window.selectIncidenceEmployee(window.currentAIEmployeeId);
+          }
+        });
+      }
+    }
+  })
+  .catch(err => {
+    console.error(err);
+    if (typeof showToast === 'function') showToast("Error al aplicar", "error");
+  });
+};
