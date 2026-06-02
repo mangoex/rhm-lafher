@@ -984,9 +984,19 @@ def get_field_letter(schema, field_name):
             return col["letter"]
     return ""
 
-def get_ai_api_key():
+def get_ai_api_key(provider="google"):
     """Read AI API key from: 1) secrets.json, 2) env var. Never from schema.json."""
     secrets = load_secrets()
+    if provider == "openrouter":
+        if "openrouter_api_key" in secrets and secrets["openrouter_api_key"].strip():
+            return secrets["openrouter_api_key"].strip()
+        env_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if env_key:
+            return env_key
+    else:
+        if "google_api_key" in secrets and secrets["google_api_key"].strip():
+            return secrets["google_api_key"].strip()
+            
     if "ai_api_key" in secrets:
         return secrets.get("ai_api_key", "").strip()
     env_key = os.environ.get("AI_API_KEY", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
@@ -998,7 +1008,7 @@ def get_ai_config(schema):
     if provider == "none":
         return {"provider": "none", "model": "", "api_key": ""}
     model = schema.get("ai_model", "gemini-2.0-flash").strip()
-    api_key = get_ai_api_key()
+    api_key = get_ai_api_key(provider)
     return {"provider": provider, "model": model, "api_key": api_key}
 
 
@@ -1249,7 +1259,8 @@ def heal_schema_locally(current_headers, old_schema):
     return updated_schema
 
 def heal_schema_with_ai(current_headers, old_schema):
-    api_key = get_ai_api_key()
+    provider = old_schema.get("ai_provider", "google").strip().lower()
+    api_key = get_ai_api_key(provider)
     if not api_key:
         print("AI API Key is missing. Performing local deterministic schema healing.")
         updated_schema = heal_schema_locally(current_headers, old_schema)
@@ -1804,7 +1815,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
     def get_ai_status(self):
         try:
-            api_key = get_ai_api_key()
+            schema = load_schema()
+            provider = schema.get("ai_provider", "google").strip().lower()
+            api_key = get_ai_api_key(provider)
             self.send_json({"configured": bool(api_key)})
         except Exception as e:
             self.send_json({"error": str(e)}, 500)
@@ -1814,7 +1827,19 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             if "ai_api_key" in body or "gemini_api_key" in body:
                 api_key = body.get("ai_api_key", "").strip() or body.get("gemini_api_key", "").strip()
                 sec = load_secrets()
-                sec["ai_api_key"] = api_key
+                schema = load_schema()
+                provider = schema.get("ai_provider", "google").strip().lower()
+                
+                if api_key == "":
+                    sec["ai_api_key"] = ""
+                    sec["google_api_key"] = ""
+                    sec["openrouter_api_key"] = ""
+                else:
+                    if provider == "openrouter":
+                        sec["openrouter_api_key"] = api_key
+                    else:
+                        sec["google_api_key"] = api_key
+                        sec["ai_api_key"] = api_key
                 save_secrets(sec)
             self.send_json({"success": True})
         except Exception as e:
@@ -2682,7 +2707,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             # Save API key to secrets.json (gitignored) if provided
             if ai_api_key:
                 sec = load_secrets()
-                sec["ai_api_key"] = ai_api_key
+                if ai_provider == "openrouter":
+                    sec["openrouter_api_key"] = ai_api_key
+                else:
+                    sec["google_api_key"] = ai_api_key
+                    sec["ai_api_key"] = ai_api_key
                 save_secrets(sec)
 
             excel_path = get_excel_path()
@@ -3006,7 +3035,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 """
 
             # Try to use AI API if key is present
-            api_key = get_ai_api_key()
+            provider = schema.get("ai_provider", "google").strip().lower()
+            api_key = get_ai_api_key(provider)
             if not api_key:
                 self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
                 return
