@@ -275,8 +275,8 @@ document.addEventListener("DOMContentLoaded", () => {
       otherCols.forEach(col => {
         container.innerHTML += `
           <div class="form-group">
-            <label for="col-"></label>
-            <input type="number" id="col-" min="0" step="0.01" value="0.0">
+            <label for="col-${col.field}">${col.label || col.header}</label>
+            <input type="number" id="col-${col.field}" min="0" step="0.01" value="0.0">
           </div>
         `;
       });
@@ -290,8 +290,8 @@ document.addEventListener("DOMContentLoaded", () => {
       deductions.forEach(col => {
         incContainer.innerHTML += `
           <div class="form-group">
-            <label for="inc-"></label>
-            <input type="number" id="inc-" min="0" value="0" step="0.01" placeholder="Ej. Préstamo">
+            <label for="inc-${col.field}">${col.label || col.header}</label>
+            <input type="number" id="inc-${col.field}" min="0" value="0" step="0.01" placeholder="Ej. ${col.label || col.header}">
           </div>
         `;
       });
@@ -316,10 +316,10 @@ document.addEventListener("DOMContentLoaded", () => {
     questions.forEach(q => {
       list.innerHTML += `
         <div class="clarify-card" style="background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-top: 0.5rem;">
-          <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;"></h4>
+          <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">${q.question}</h4>
           <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
             ${q.options.map(opt => `
-              <button type="button" class="btn btn-secondary btn-sm clarify-opt-btn" data-field="${q.field}" data-answer=""></button>
+              <button type="button" class="btn btn-secondary btn-sm clarify-opt-btn" data-field="${q.field}" data-answer="${opt}">${opt}</button>
             `).join("")}
           </div>
         </div>
@@ -892,7 +892,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!emp) return;
 
     document.getElementById("inc-form-container").style.display = "block";
-    document.getElementById("inc-coll-name").textContent = `Incidencias: `;
+    document.getElementById("inc-coll-name").textContent = `Incidencias: ${emp.nombre} (${emp.id})`;
     
     const dateInput = document.getElementById("inc-fecha");
     if (dateInput) {
@@ -966,7 +966,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const descText = details.join(", ") || "Observación / Justificación";
-      const obs = inc.observaciones ? ` <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top: 2px;">Obs: </span>` : "";
+      const obs = inc.observaciones ? ` <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top: 2px;">Obs: ${escapeHtml(inc.observaciones)}</span>` : "";
 
       rowsHtml += `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -1078,7 +1078,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-`);
+            const el = document.getElementById("inc-" + col.field);
             if (el) {
               el.value = inc[col.field] || 0.0;
             }
@@ -1118,7 +1118,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-`);
+            const el = document.getElementById("inc-" + col.field);
             if (el) {
               el.value = 0.0;
             }
@@ -1195,7 +1195,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-`);
+            const el = document.getElementById("inc-" + col.field);
             payload[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
           }
         });
@@ -1802,7 +1802,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-`);
+            const el = document.getElementById("col-" + col.field);
             if (el) {
               el.value = emp[col.field] || 0.0;
             }
@@ -1824,7 +1824,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-`);
+            const el = document.getElementById("col-" + col.field);
             if (el) el.value = 0.0;
           }
         });
@@ -1865,7 +1865,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-`);
+            const el = document.getElementById("col-" + col.field);
             data[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
           }
         });
