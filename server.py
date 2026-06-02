@@ -705,6 +705,20 @@ def recompile_active_period_incidences(wb, schema):
                     
         row += 1
 
+def upgrade_model_name(model_name):
+    if not model_name:
+        return "gemini-2.5-flash"
+    m = model_name.strip()
+    if m == "gemini-2.0-flash":
+        return "gemini-2.5-flash"
+    if m == "gemini-2.0-pro":
+        return "gemini-2.5-pro"
+    if m == "google/gemini-2.0-flash":
+        return "google/gemini-2.5-flash"
+    if m == "google/gemini-2.0-pro":
+        return "google/gemini-2.5-pro"
+    return m
+
 def load_schema():
     default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "ai_provider": "google", "ai_model": "gemini-2.5-flash", "pending_clarifications": [], "payroll_rules": ""}
     if not os.path.exists(SCHEMA_PATH):
@@ -714,6 +728,19 @@ def load_schema():
     try:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
+            
+            # Auto-upgrade deprecated Gemini 2.0 models to 2.5
+            original_model = data.get("ai_model", "")
+            upgraded_model = upgrade_model_name(original_model)
+            if original_model != upgraded_model:
+                data["ai_model"] = upgraded_model
+                # Try to save updated schema back to persist it
+                try:
+                    with open(SCHEMA_PATH, "w", encoding="utf-8") as out_f:
+                        json.dump(data, out_f, ensure_ascii=False, indent=2)
+                except Exception as save_err:
+                    print("Error persisting upgraded schema:", save_err)
+
             if "payroll_rules" not in data or not data["payroll_rules"]:
                 docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
                 data["payroll_rules"] = extract_default_payroll_rules(docx_local)
@@ -1031,7 +1058,7 @@ def get_ai_config(schema):
     provider = schema.get("ai_provider", "google").strip().lower()
     if provider == "none":
         return {"provider": "none", "model": "", "api_key": ""}
-    model = schema.get("ai_model", "gemini-2.5-flash").strip()
+    model = upgrade_model_name(schema.get("ai_model", "gemini-2.5-flash"))
     api_key = get_ai_api_key(provider)
     return {"provider": provider, "model": model, "api_key": api_key}
 
@@ -2678,7 +2705,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             aguinaldo = float(body.get("aguinaldo", 15.0))
             prima = float(body.get("prima", 25.0))
             ai_provider = body.get("ai_provider", "google").strip().lower()
-            ai_model = body.get("ai_model", "gemini-2.5-flash").strip()
+            ai_model = upgrade_model_name(body.get("ai_model", "gemini-2.5-flash"))
             db_path = body.get("db_path", "")
             payroll_rules = body.get("payroll_rules", "")
 

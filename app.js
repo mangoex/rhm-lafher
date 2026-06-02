@@ -169,7 +169,12 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleAIProviderModels(provider);
           
           if (modelSelect) {
-            const model = schemaData.ai_model || "gemini-2.5-flash";
+            let model = schemaData.ai_model || "gemini-2.5-flash";
+            if (model === "gemini-2.0-flash") model = "gemini-2.5-flash";
+            else if (model === "gemini-2.0-pro") model = "gemini-2.5-pro";
+            else if (model === "google/gemini-2.0-flash") model = "google/gemini-2.5-flash";
+            else if (model === "google/gemini-2.0-pro") model = "google/gemini-2.5-pro";
+
             // Check if model exists as an option
             let optionExists = false;
             for (let i = 0; i < modelSelect.options.length; i++) {
