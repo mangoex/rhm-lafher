@@ -54,6 +54,7 @@ import threading
 EXCEL_LOCK = threading.Lock()
 
 USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
+COMPANIES_FILE = os.path.join(CONFIG_DIR, "companies.json")
 SECRETS_PATH = os.path.join(CONFIG_DIR, "secrets.json")
 SESSIONS = {}  # token -> {"username": username, "role": role, "expiry": timestamp}
 
@@ -100,6 +101,43 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=4)
+
+def load_companies():
+    if not os.path.exists(COMPANIES_FILE):
+        default_seed_path = os.path.join(STATIC_DIR, "companies.json")
+        if os.path.exists(default_seed_path):
+            try:
+                shutil.copyfile(default_seed_path, COMPANIES_FILE)
+                with open(COMPANIES_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except:
+                pass
+        
+        # Fallback default seed
+        companies = [
+            { "id": "1", "nombre": "AHA", "razon_social": "AHA S.A. de C.V.", "regimen": "Régimen General de Ley Personas Morales", "prima_riesgo": 0.5432 },
+            { "id": "2", "nombre": "BYRMAX", "razon_social": "BYRMAX S. de R.L. de C.V.", "regimen": "Régimen General de Ley Personas Morales", "prima_riesgo": 1.1345 },
+            { "id": "3", "nombre": "CPI", "razon_social": "CPI Servicios Financieros S.A. de C.V.", "regimen": "Régimen General de Ley Personas Morales", "prima_riesgo": 0.5000 },
+            { "id": "4", "nombre": "CPI/ ASIMIL", "razon_social": "CPI Asimilados y Servicios Integrales", "regimen": "Sueldos y Salarios / Asimilados", "prima_riesgo": 0.0000 },
+            { "id": "5", "nombre": "LASO", "razon_social": "LASO Corporativo Jurídico", "regimen": "Régimen General de Ley Personas Morales", "prima_riesgo": 0.7500 },
+            { "id": "6", "nombre": "FACTURA", "razon_social": "Facturación y Comisiones", "regimen": "Sueldos y Salarios / Asimilados", "prima_riesgo": 0.0000 }
+        ]
+        save_companies_data(companies)
+        return companies
+        
+    try:
+        with open(COMPANIES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error loading companies:", e)
+        return []
+
+def save_companies_data(companies):
+    try:
+        with open(COMPANIES_FILE, "w", encoding="utf-8") as f:
+            json.dump(companies, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print("Error saving companies:", e)
 
 # Extract schema.json first if missing and frozen
 if getattr(sys, 'frozen', False):
@@ -1648,6 +1686,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.get_users()
             elif path_only == "/api/ai-status":
                 self.get_ai_status()
+            elif path_only == "/api/companies":
+                self.get_companies()
             elif path_only == "/api/incidences":
                 import urllib.parse
                 parsed = urllib.parse.urlparse(self.path)
@@ -1674,7 +1714,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules"]:
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/companies"]:
             if session["role"] != "admin":
                 self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
                 return
@@ -1698,6 +1738,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         with EXCEL_LOCK:
             if path_only == "/api/collaborator":
                 self.save_collaborator(body)
+            elif path_only == "/api/companies":
+                self.save_companies(body)
             elif path_only == "/api/incidences":
                 self.save_incidences(body)
             elif path_only == "/api/period":
@@ -1735,6 +1777,18 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
                     return
                 self.delete_user_endpoint(username)
+            elif path_only == "/api/companies":
+                if session["role"] != "admin":
+                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                    return
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed.query)
+                company_id = params.get("id", [None])[0]
+                if not company_id:
+                    self.send_json({"error": "Falta el ID de la empresa a eliminar"}, 400)
+                    return
+                self.delete_company_endpoint(company_id)
             elif path_only == "/api/incidences":
                 import urllib.parse
                 parsed = urllib.parse.urlparse(self.path)
@@ -1900,6 +1954,71 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": True})
         except Exception as e:
             self.send_json({"error": f"Error eliminando usuario: {e}"}, 500)
+
+    def get_companies(self):
+        try:
+            companies = load_companies()
+            self.send_json(companies)
+        except Exception as e:
+            self.send_json({"error": f"Error al obtener catálogo de empresas: {e}"}, 500)
+
+    def save_companies(self, body):
+        try:
+            company_id = body.get("id")
+            nombre = body.get("nombre", "").strip()
+            razon_social = body.get("razon_social", "").strip()
+            regimen = body.get("regimen", "").strip()
+            try:
+                prima_riesgo = float(str(body.get("prima_riesgo", 0.0)).replace("%", "").strip())
+            except ValueError:
+                prima_riesgo = 0.0
+            
+            if not nombre:
+                self.send_json({"error": "El nombre corto de la empresa es requerido"}, 400)
+                return
+                
+            companies = load_companies()
+            
+            if company_id:
+                found = False
+                for c in companies:
+                    if str(c["id"]) == str(company_id):
+                        c["nombre"] = nombre
+                        c["razon_social"] = razon_social
+                        c["regimen"] = regimen
+                        c["prima_riesgo"] = prima_riesgo
+                        found = True
+                        break
+                if not found:
+                    self.send_json({"error": f"Empresa con ID {company_id} no encontrada"}, 404)
+                    return
+            else:
+                new_id = str(max([int(c["id"]) for c in companies] + [0]) + 1)
+                companies.append({
+                    "id": new_id,
+                    "nombre": nombre,
+                    "razon_social": razon_social,
+                    "regimen": regimen,
+                    "prima_riesgo": prima_riesgo
+                })
+                
+            save_companies_data(companies)
+            self.send_json({"success": True, "message": "Empresa guardada exitosamente"})
+        except Exception as e:
+            self.send_json({"error": f"Error al guardar empresa: {e}"}, 500)
+
+    def delete_company_endpoint(self, company_id):
+        try:
+            companies = load_companies()
+            new_companies = [c for c in companies if str(c["id"]) != str(company_id)]
+            if len(new_companies) == len(companies):
+                self.send_json({"error": f"Empresa con ID {company_id} no encontrada"}, 404)
+                return
+            
+            save_companies_data(new_companies)
+            self.send_json({"success": True, "message": "Empresa eliminada exitosamente"})
+        except Exception as e:
+            self.send_json({"error": f"Error al eliminar empresa: {e}"}, 500)
 
     def get_ai_status(self):
         try:
@@ -2668,9 +2787,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "Database file not found"}, 500)
                 return
 
-            cod = body.get("id")
-            if not cod:
-                self.send_json({"error": "Collaborator ID/Code is required"}, 400)
+            changes_list = body if isinstance(body, list) else [body]
+            if not changes_list:
+                self.send_json({"error": "No changes provided"}, 400)
                 return
 
             wb = load_workbook_agnostic(excel_path, data_only=False)
@@ -2678,70 +2797,105 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             nombre_col = get_field_index(schema, "nombre")
             id_col = get_field_index(schema, "id")
-
             headers_row = find_headers_row(ws)
-            row = headers_row + 1
-            found_row = None
-            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
-            temp_row_resolved = None
-            if is_temp_id:
-                try:
-                    temp_row_resolved = int(cod.split("_")[1])
-                except ValueError:
-                    pass
 
-            while True:
-                nombre_val = ws.cell(row=row, column=nombre_col).value
-                cod_val = ws.cell(row=row, column=id_col).value
-                
-                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
-                    break
-                if nombre_val is None and cod_val is None:
-                    break
-                if temp_row_resolved == row:
-                    found_row = row
-                    break
-                elif not is_temp_id and cod_val is not None and clean_employee_id(cod_val) == clean_employee_id(cod):
-                    found_row = row
-                    break
-                row += 1
+            registered_count = 0
+            for change_item in changes_list:
+                cod = change_item.get("id") or change_item.get("employee_id")
+                if not cod:
+                    continue
 
-            if not found_row:
-                self.send_json({"error": f"Collaborator CÃ³d. {cod} not found in database"}, 404)
-                wb.close()
-                return
+                row = headers_row + 1
+                found_row = None
+                is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+                temp_row_resolved = None
+                if is_temp_id:
+                    try:
+                        temp_row_resolved = int(cod.split("_")[1])
+                    except ValueError:
+                        pass
 
-            nombre_val = ws.cell(row=found_row, column=nombre_col).value
+                while True:
+                    nombre_val = ws.cell(row=row, column=nombre_col).value
+                    cod_val = ws.cell(row=row, column=id_col).value
+                    
+                    if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                        break
+                    if nombre_val is None and cod_val is None:
+                        break
+                    if temp_row_resolved == row:
+                        found_row = row
+                        break
+                    elif not is_temp_id and cod_val is not None and clean_employee_id(cod_val) == clean_employee_id(cod):
+                        found_row = row
+                        break
+                    row += 1
 
-            # Save to Incidencias log
-            incidence_data = {
-                "date": body.get("date"),
-                "id": cod,
-                "nombre": nombre_val or "",
-                "faltas": int(body.get("faltas", 0)),
-                "retardos": int(body.get("retardos", 0)),
-                "vacaciones": int(body.get("vacaciones", 0)),
-                "descuento_adicional": float(body.get("descuento_adicional", 0.0)),
-                "puntualidad": body.get("puntualidad", "SI"),
-                "asistencia": body.get("asistencia", "SI"),
-                "observaciones": body.get("observaciones", "")
-            }
-            # Gather dynamic deductions from body
-            for col in schema.get("columns", []):
-                if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                    field = col.get("field")
-                    incidence_data[field] = float(body.get(field, 0.0))
+                if not found_row:
+                    if len(changes_list) == 1:
+                        self.send_json({"error": f"Collaborator Cód. {cod} not found in database"}, 404)
+                        wb.close()
+                        return
+                    else:
+                        print(f"Skipping collaborator Cód. {cod}: not found in database")
+                        continue
 
-            save_incidence_to_excel(wb, incidence_data)
+                nombre_val = ws.cell(row=found_row, column=nombre_col).value
 
-            # Recompile Hoja1 calculations based on active period
-            recompile_active_period_incidences(wb, schema)
+                # Determine appropriate date
+                import datetime
+                tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
+                today_mex = datetime.datetime.now(tz_mex).date()
+                today_str = today_mex.strftime("%Y-%m-%d")
 
-            # Save file
-            save_workbook_agnostic(wb, excel_path)
+                date_val = change_item.get("date") or change_item.get("fecha")
+                if not date_val:
+                    period_str = schema.get("period", "16 al 30 Abr 2026")
+                    start_date, end_date = parse_period_dates(period_str)
+                    if not (start_date <= today_mex <= end_date):
+                        today_str = start_date.strftime("%Y-%m-%d")
+                else:
+                    today_str = str(date_val)
+
+                # Save to Incidencias log
+                incidence_data = {
+                    "date": today_str,
+                    "id": cod,
+                    "nombre": nombre_val or "",
+                    "faltas": int(change_item.get("faltas", 0)),
+                    "retardos": int(change_item.get("retardos", 0)),
+                    "vacaciones": int(change_item.get("vacaciones", 0)),
+                    "descuento_adicional": float(change_item.get("descuento_adicional", 0.0)),
+                    "puntualidad": "SI" if change_item.get("puntualidad") in [True, "SI"] else ("NO" if change_item.get("puntualidad") in [False, "NO"] else change_item.get("puntualidad", "SI")),
+                    "asistencia": "SI" if change_item.get("asistencia") in [True, "SI"] else ("NO" if change_item.get("asistencia") in [False, "NO"] else change_item.get("asistencia", "SI")),
+                    "observaciones": change_item.get("observaciones", ""),
+                    "forzar_asistencia": "SI" if change_item.get("forzar_asistencia") in [True, "SI"] else ("NO" if change_item.get("forzar_asistencia") in [False, "NO"] else change_item.get("forzar_asistencia", "NO")),
+                    "forzar_puntualidad": "SI" if change_item.get("forzar_puntualidad") in [True, "SI"] else ("NO" if change_item.get("forzar_puntualidad") in [False, "NO"] else change_item.get("forzar_puntualidad", "NO")),
+                    "forzar_vales": "SI" if change_item.get("forzar_vales") in [True, "SI"] else ("NO" if change_item.get("forzar_vales") in [False, "NO"] else change_item.get("forzar_vales", "NO")),
+                    "ajuste_vales": change_item.get("ajuste_vales"),
+                    "ajuste_fondo_ahorro": change_item.get("ajuste_fondo_ahorro")
+                }
+
+                # Gather dynamic deductions
+                for col in schema.get("columns", []):
+                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                        field = col.get("field")
+                        if field in change_item:
+                            try:
+                                incidence_data[field] = float(change_item.get(field, 0.0))
+                            except (ValueError, TypeError):
+                                incidence_data[field] = 0.0
+
+                save_incidence_to_excel(wb, incidence_data)
+                registered_count += 1
+
+            if registered_count > 0:
+                recompile_active_period_incidences(wb, schema)
+                save_workbook_agnostic(wb, excel_path)
+            
             wb.close()
 
-            self.send_json({"success": True, "message": f"Incidences registered for date {incidence_data['date']}"})
+            self.send_json({"success": True, "message": f"Incidences registered for {registered_count} entries"})
 
         except PermissionError:
             self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' estÃ¡ abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e intÃ©ntalo de nuevo."}, 500)
@@ -2855,9 +3009,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             cod = body.get("employee_id")
-            if not cod:
-                self.send_json({"error": "Employee ID is required"}, 400)
-                return
+            is_global = not cod or str(cod).strip().upper() in ["GLOBAL", "NONE", "NULL", ""]
 
             chat_history = body.get("chat_history", [])
             new_message = body.get("new_message", "")
@@ -2867,7 +3019,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             sheet_v = wb_v.active
             sheet_f = wb_f.active
 
-            # Read dynamic configuration cells
             uma_cell_coord = schema.get("uma_cell", "S3")
             vales_pct_cell = schema.get("vales_pct_cell", "P3")
             dias_mes_cell = schema.get("dias_mes_cell", "N3")
@@ -2891,75 +3042,17 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             aguinaldo = get_cell_float(sheet_v, aguinaldo_cell, 15.0)
             prima = get_cell_float(sheet_v, prima_cell, 25.0)
 
-            # Find employee row
             nombre_col = get_field_index(schema, "nombre")
             id_col = get_field_index(schema, "id")
-
             headers_row = find_headers_row(sheet_v)
-            row = headers_row + 1
-            found_row = None
-            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
-            temp_row_resolved = None
-            if is_temp_id:
-                try:
-                    temp_row_resolved = int(cod.split("_")[1])
-                except ValueError:
-                    pass
 
-            while True:
-                nombre_val = sheet_v.cell(row=row, column=nombre_col).value
-                cod_val = sheet_v.cell(row=row, column=id_col).value
-                
-                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
-                    break
-                if nombre_val is None and cod_val is None:
-                    break
-                if temp_row_resolved == row:
-                    found_row = row
-                    break
-                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
-                    found_row = row
-                    break
-                row += 1
+            companies = load_companies()
+            companies_map = {c["nombre"].strip().upper(): c for c in companies}
 
-            if not found_row:
-                self.send_json({"error": f"Colaborador con CÃ³d. {cod} no encontrado"}, 404)
-                wb_v.close()
-                wb_f.close()
-                return
-
-            def val_to_float(cell_val):
-                if cell_val is None: return 0.0
-                v = str(cell_val).replace(",", "").strip()
-                if v in ["-", "", "None"]: return 0.0
-                try: return float(v)
-                except ValueError: return 0.0
-
-            # Read employee data
-            emp_data = {}
-            for col in schema["columns"]:
-                f = col["field"]
-                t = col["type"]
-                val = sheet_v.cell(row=found_row, column=col["index"]).value
-                if t == "float":
-                    if f == "vacaciones_restantes":
-                        tot_idx = get_field_index(schema, "vacaciones_totales")
-                        tom_idx = get_field_index(schema, "vacaciones_tomadas")
-                        tot_val = val_to_float(sheet_v.cell(row=found_row, column=tot_idx).value) if tot_idx else 0.0
-                        tom_val = val_to_float(sheet_v.cell(row=found_row, column=tom_idx).value) if tom_idx else 0.0
-                        emp_data[f] = tot_val - tom_val
-                    else:
-                        emp_data[f] = val_to_float(val)
-                elif t == "boolean":
-                    emp_data[f] = str(val or "").upper() == "SI"
-                else:
-                    emp_data[f] = str(val or "").strip()
-
-            # Resolve absences (faltas)
-            faltas = 0
             period_str = schema.get("period", "16 al 30 Abr 2026")
             start_date, end_date = parse_period_dates(period_str)
-            agg_faltas = 0
+            incidences_map = {}
+
             if "Incidencias" in wb_v.sheetnames:
                 ws_inc = wb_v["Incidencias"]
                 for r in range(2, ws_inc.max_row + 1):
@@ -2973,73 +3066,88 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                                 row_date = datetime.datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date()
                             
                             if start_date <= row_date <= end_date:
-                                c_id = str(ws_inc.cell(row=r, column=2).value).strip()
-                                if c_id == str(cod).strip():
-                                    agg_faltas += int(ws_inc.cell(row=r, column=4).value or 0)
+                                c_id = clean_employee_id(ws_inc.cell(row=r, column=2).value)
+                                if c_id:
+                                    if c_id not in incidences_map:
+                                        incidences_map[c_id] = 0
+                                    incidences_map[c_id] += int(ws_inc.cell(row=r, column=4).value or 0)
                         except:
                             pass
-            
-            if agg_faltas > 0:
-                faltas = agg_faltas
-            else:
-                # Fallback to formula parsing
-                neto_quincenal_col = get_field_index(schema, "neto_quincenal")
-                if neto_quincenal_col:
-                    formula_ag = sheet_f.cell(row=found_row, column=neto_quincenal_col).value
-                    if isinstance(formula_ag, str) and "/15*" in formula_ag:
-                        try:
-                            parts = formula_ag.split("*")
-                            days_worked = int(parts[-1])
-                            faltas = 15 - days_worked
-                        except:
-                            pass
+
+            def val_to_float(cell_val):
+                if cell_val is None: return 0.0
+                v = str(cell_val).replace(",", "").strip()
+                if v in ["-", "", "None"]: return 0.0
+                try: return float(v)
+                except ValueError: return 0.0
+
+            all_employees_data = []
+            row = headers_row + 1
+            while True:
+                nombre_val = sheet_v.cell(row=row, column=nombre_col).value
+                cod_val = sheet_v.cell(row=row, column=id_col).value
+                
+                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                    break
+                if nombre_val is None and cod_val is None:
+                    break
+                
+                emp_id_str = clean_employee_id(cod_val) if cod_val is not None else f"TEMP_{row}"
+                
+                if not is_global and emp_id_str != clean_employee_id(cod):
+                    row += 1
+                    continue
+                
+                emp_data = {}
+                for col in schema["columns"]:
+                    f = col["field"]
+                    t = col["type"]
+                    val = sheet_v.cell(row=row, column=col["index"]).value
+                    if t == "float":
+                        if f == "vacaciones_restantes":
+                            tot_idx = get_field_index(schema, "vacaciones_totales")
+                            tom_idx = get_field_index(schema, "vacaciones_tomadas")
+                            tot_val = val_to_float(sheet_v.cell(row=row, column=tot_idx).value) if tot_idx else 0.0
+                            tom_val = val_to_float(sheet_v.cell(row=row, column=tom_idx).value) if tom_idx else 0.0
+                            emp_data[f] = tot_val - tom_val
+                        else:
+                            emp_data[f] = val_to_float(val)
+                    elif t == "boolean":
+                        emp_data[f] = str(val or "").upper() == "SI"
+                    else:
+                        emp_data[f] = str(val or "").strip()
+
+                emp_faltas = 0
+                if emp_id_str in incidences_map:
+                    emp_faltas = incidences_map[emp_id_str]
+                else:
+                    neto_quincenal_col = get_field_index(schema, "neto_quincenal")
+                    if neto_quincenal_col:
+                        formula_ag = sheet_f.cell(row=row, column=neto_quincenal_col).value
+                        if isinstance(formula_ag, str) and "/15*" in formula_ag:
+                            try:
+                                parts = formula_ag.split("*")
+                                days_worked = int(parts[-1])
+                                emp_faltas = 15 - days_worked
+                            except:
+                                pass
+                emp_data["faltas"] = emp_faltas
+                all_employees_data.append((row, emp_data))
+                
+                if not is_global:
+                    break
+                row += 1
 
             wb_v.close()
             wb_f.close()
 
-            # Basic math fields
-            nombre = emp_data.get("nombre", "Sin Nombre")
-            salario_diario = emp_data.get("salario_diario", 0.0)
-            fi = emp_data.get("factor_integracion", 1.0493)
-            sdi = emp_data.get("sdi", 0.0)
-            sueldo_nominal = emp_data.get("sueldo_nominal", 0.0)
-            puntualidad = emp_data.get("puntualidad", 0.0)
-            asistencia = emp_data.get("asistencia", 0.0)
-            vales_despensa = emp_data.get("vales_despensa", 0.0)
-            fondo_ahorro = emp_data.get("fondo_ahorro", 0.0)
-            fondo_ahorro_activo = "SI" if emp_data.get("fondo_ahorro_activo", False) else "NO"
-            percepcion_sueldos = emp_data.get("percepcion_sueldos", 0.0)
-            
-            asimilados = emp_data.get("asimilados", 0.0)
-            gasolina = emp_data.get("gasolina", 0.0)
-            socio = emp_data.get("socio", 0.0)
-            efectivo = emp_data.get("efectivo", 0.0)
-            facturado = emp_data.get("facturado", 0.0)
-            deuda_carro = emp_data.get("deuda_carro", 0.0)
-            total_otros = asimilados + gasolina + socio + efectivo + facturado + deuda_carro
-            bruto_mensual = percepcion_sueldos + total_otros
-            bruto_quincenal = bruto_mensual / 2
-            
-            descuento_faltas = (bruto_quincenal / 15.0) * faltas if faltas > 0 else 0.0
-            descuento_adicional = emp_data.get("descuento_adicional", 0.0)
-            neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) / 2 / 15 * (15 - faltas))
+            if not all_employees_data:
+                if not is_global:
+                    self.send_json({"error": f"Colaborador con Cód. {cod} no encontrado"}, 404)
+                else:
+                    self.send_json({"error": "No se encontraron colaboradores en la base de datos"}, 404)
+                return
 
-            # Determine entry and years completed
-            ingreso_str = emp_data.get("ingreso", "")
-            years_of_labores = 0.0
-            vac = 12
-            if ingreso_str:
-                try:
-                    ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
-                    _, active_date_obj = parse_period_dates(schema.get("period", ""))
-                    active_dt = datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
-                    years_of_labores = (active_dt - ingreso_dt).days / 365.25
-                    y = max(1, int(years_of_labores))
-                    vac = calculate_vacation_days(y)
-                except:
-                    pass
-
-            # Check if custom company rules are defined
             custom_rules = schema.get("payroll_rules", "").strip()
             rules_source = "custom" if custom_rules else "official"
             
@@ -3047,12 +3155,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 rules_to_use = f"Reglas privadas/particulares de la empresa:\n{custom_rules}"
             else:
                 rules_to_use = (
-                    "No se configuraron reglas privadas de la empresa. Se aplican las reglas contables oficiales estÃ¡ndar de la LFT (Ley Federal del Trabajo) en MÃ©xico:\n"
-                    "- Factor de IntegraciÃ³n = 1 + (Aguinaldo / 365) + (Vacaciones * Prima_Vacacional / 365)\n"
-                    "- Salario Diario Integrado (SDI) = Salario Diario * Factor de IntegraciÃ³n\n"
-                    "- Sueldo Nominal Mensual = Salario Diario * DÃas del Mes (Row 3)\n"
-                    "- Premios de Asistencia y Puntualidad: 10% del SDI * DÃas del Mes cada uno\n"
-                    "- Vales de Despensa = UMA * Vales% * DÃas del Mes\n"
+                    "No se configuraron reglas privadas de la empresa. Se aplican las reglas contables oficiales estándar de la LFT (Ley Federal del Trabajo) en México:\n"
+                    "- Factor de Integración = 1 + (Aguinaldo / 365) + (Vacaciones * Prima_Vacacional / 365)\n"
+                    "- Salario Diario Integrado (SDI) = Salario Diario * Factor de Integración\n"
+                    "- Sueldo Nominal Mensual = Salario Diario * Días del Mes (Row 3)\n"
+                    "- Premios de Asistencia y Puntualidad: 10% del SDI * Días del Mes cada uno\n"
+                    "- Vales de Despensa = UMA * Vales% * Días del Mes\n"
                     "- Fondo de Ahorro = Sueldo Nominal * FA% (si aplica)\n"
                     "- Sueldo Bruto Mensual = Total Percepciones + Otros Ingresos\n"
                     "- Sueldo Bruto Quincenal normal = Bruto Mensual / 2\n"
@@ -3060,41 +3168,91 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     "- Sueldo Neto Quincenal = (Sueldo Bruto Mensual - Descuento Adicional - Deuda Carro) / 2 / 15 * (15 - Faltas)"
                 )
 
-            # Generate local markdown breakdown as fallback
-            fa_status = f"SÃ, activo (`={fa_pct:.0f}%`): `=Sueldo_Nominal * {fa_pct / 100:.2f}` que equivale a **${fondo_ahorro:,.2f}**" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
-            fi_aguinaldo = aguinaldo / 365.0
-            fi_prima = (vac * (prima / 100.0)) / 365.0
-            
-            local_desglose = f"""### ðŸ“  ExplicaciÃ³n del CÃ¡lculo de NÃ³mina (Offline)
+            if not is_global:
+                found_row, emp_data = all_employees_data[0]
+                nombre = emp_data.get("nombre", "Sin Nombre")
+                salario_diario = emp_data.get("salario_diario", 0.0)
+                fi = emp_data.get("factor_integracion", 1.0493)
+                sdi = emp_data.get("sdi", 0.0)
+                sueldo_nominal = emp_data.get("sueldo_nominal", 0.0)
+                puntualidad = emp_data.get("puntualidad", 0.0)
+                asistencia = emp_data.get("asistencia", 0.0)
+                vales_despensa = emp_data.get("vales_despensa", 0.0)
+                fondo_ahorro = emp_data.get("fondo_ahorro", 0.0)
+                fondo_ahorro_activo = "SI" if emp_data.get("fondo_ahorro_activo", False) else "NO"
+                percepcion_sueldos = emp_data.get("percepcion_sueldos", 0.0)
+                
+                asimilados = emp_data.get("asimilados", 0.0)
+                gasolina = emp_data.get("gasolina", 0.0)
+                socio = emp_data.get("socio", 0.0)
+                efectivo = emp_data.get("efectivo", 0.0)
+                facturado = emp_data.get("facturado", 0.0)
+                deuda_carro = emp_data.get("deuda_carro", 0.0)
+                total_otros = asimilados + gasolina + socio + efectivo + facturado + deuda_carro
+                bruto_mensual = percepcion_sueldos + total_otros
+                bruto_quincenal = bruto_mensual / 2
+                
+                faltas = emp_data.get("faltas", 0)
+                descuento_faltas = (bruto_quincenal / 15.0) * faltas if faltas > 0 else 0.0
+                descuento_adicional = emp_data.get("descuento_adicional", 0.0)
+                neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) / 2 / 15 * (15 - faltas))
 
-*Nota: No hay una clave de API de Gemini vÃ¡lida configurada en la base de datos, por lo que se muestra el desglose matemÃ¡tico contable estÃ¡ndar.*
+                ingreso_str = emp_data.get("ingreso", "")
+                years_of_labores = 0.0
+                vac = 12
+                if ingreso_str:
+                    try:
+                        ingreso_dt = datetime.datetime.strptime(ingreso_str, "%Y-%m-%d")
+                        _, active_date_obj = parse_period_dates(schema.get("period", ""))
+                        active_dt = datetime.datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
+                        years_of_labores = (active_dt - ingreso_dt).days / 365.25
+                        y = max(1, int(years_of_labores))
+                        vac = calculate_vacation_days(y)
+                    except:
+                        pass
+                
+                emp_company_name = emp_data.get("empresa", "").strip().upper()
+                emp_company = companies_map.get(emp_company_name, {
+                    "nombre": emp_data.get("empresa", ""),
+                    "razon_social": emp_data.get("empresa", ""),
+                    "regimen": "Régimen General de Ley Personas Morales (Por defecto)",
+                    "prima_riesgo": 0.5432
+                })
 
-**Colaborador:** {nombre} (CÃ³digo: {cod})  
+                fa_status = f"Sí, activo (`={fa_pct:.0f}%`): `=Sueldo_Nominal * {fa_pct / 100:.2f}` que equivale a **${fondo_ahorro:,.2f}**" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
+                
+                local_desglose = f"""### 📝 Explicación del Cálculo de Nómina (Offline)
+
+*Nota: No hay una clave de API de Gemini válida configurada en la base de datos, por lo que se muestra el desglose matemático contable estándar.*
+
+**Colaborador:** {nombre} (Código: {cod})  
+**Empresa:** {emp_company.get('nombre')} ({emp_company.get('razon_social')})
+**Régimen Fiscal:** {emp_company.get('regimen')} | **Prima de Riesgo:** {emp_company.get('prima_riesgo')}%
 **Fecha de Ingreso:** {ingreso_str}  
-**AntigÃ¼edad:** {years_of_labores:.2f} aÃ±os ({vac} dÃas de vacaciones correspondientes segÃºn la LFT)  
+**Antigüedad:** {years_of_labores:.2f} años ({vac} días de vacaciones correspondientes según la LFT)  
 
 ---
 
 #### 1. Esquema Nominal IMSS (Base Fiscal)
-* **Factor de IntegraciÃ³n (FI):**  
-  FÃ³rmula Excel: `=1 + (DÃas_Aguinaldo / 365) + (DÃas_Vacaciones * Prima_Vacacional / 365)`  
-  CÃ¡lculo: `=1 + ({aguinaldo:.0f} / 365) + ({vac} * {prima / 100:.2f} / 365)`  
+* **Factor de Integración (FI):**  
+  Fórmula Excel: `=1 + (Días_Aguinaldo / 365) + (Días_Vacaciones * Prima_Vacacional / 365)`  
+  Cálculo: `=1 + ({aguinaldo:.0f} / 365) + ({vac} * {prima / 100:.2f} / 365)`  
   Resultado: `{fi:.4f}`
 * **Salario Diario Integrado (SDI):**  
-  FÃ³rmula Excel: `=Salario_Diario * Factor_Integracion`  
-  CÃ¡lculo: `=${salario_diario:,.2f} * {fi:.4f}`  
-  Resultado: **${sdi:,.2f}** (Base de cotizaciÃ³n ante el IMSS)
+  Fórmula Excel: `=Salario_Diario * Factor_Integracion`  
+  Cálculo: `=${salario_diario:,.2f} * {fi:.4f}`  
+  Resultado: **${sdi:,.2f}** (Base de cotización ante el IMSS)
 * **Sueldo Nominal Mensual:**  
-  FÃ³rmula Excel: `=Salario_Diario * DÃas_del_Mes`  
-  CÃ¡lculo: `=${salario_diario:,.2f} * {dias_mes:.1f}`  
+  Fórmula Excel: `=Salario_Diario * Días_del_Mes`  
+  Cálculo: `=${salario_diario:,.2f} * {dias_mes:.1f}`  
   Resultado: **${sueldo_nominal:,.2f}**
 * **Premios de Asistencia y Puntualidad (10% del SDI mensual cada uno):**  
-  * **Puntualidad:** **${puntualidad:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` âž¡ï¸  `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
-  * **Asistencia:** **${asistencia:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` âž¡ï¸  `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Puntualidad:** **${puntualidad:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Asistencia:** **${asistencia:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
 * **Vales de Despensa:**  
-  FÃ³rmula Excel: `=UMA * Porcentaje_Vales * DÃas_del_Mes`  
-  CÃ¡lculo: `=${uma:,.2f} * {vales_pct / 100:.2f} * {dias_mes:.1f}`  
-  Resultado: **${vales_despensa:,.2f}** (Exento del IMSS por estar dentro del lÃmite del 40% de la UMA)
+  Fórmula Excel: `=UMA * Porcentaje_Vales * Días_del_Mes`  
+  Cálculo: `=${uma:,.2f} * {vales_pct / 100:.2f} * {dias_mes:.1f}`  
+  Resultado: **${vales_despensa:,.2f}**
 * **Fondo de Ahorro:** {fa_status}
 * **Total Percepciones Mensuales:** **${percepcion_sueldos:,.2f}**
 
@@ -3111,58 +3269,33 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
 ---
 
-#### 3. CÃ¡lculo de PrenÃ³mina Quincenal (Pago Actual)
+#### 3. Cálculo de Prenómina Quincenal (Pago Actual)
 * **Sueldo Bruto Mensual (Base Total):** **${bruto_mensual:,.2f}** (Sueldo Nominal + Otros Conceptos)
-* **Sueldo Bruto Quincenal:** **${bruto_quincenal:,.2f}** (FÃ³rmula Excel: `=Sueldo_Bruto_Mensual / 2`)
+* **Sueldo Bruto Quincenal:** **${bruto_quincenal:,.2f}** (Fórmula Excel: `=Sueldo_Bruto_Mensual / 2`)
 * **Ajustes, Faltas y Descuentos en la Quincena:**
-  * **Descuento por Faltas ({faltas} dÃas):** DeducciÃ³n de **${descuento_faltas:,.2f}** (FÃ³rmula Excel: `=(Sueldo_Bruto_Quincenal / 15) * Faltas` âž¡ï¸  `=({bruto_quincenal:.2f} / 15) * {faltas}`)
+  * **Descuento por Faltas ({faltas} días):** Deducción de **${descuento_faltas:,.2f}**
   * **Descuento Adicional:** **${descuento_adicional:,.2f}**
 * **Sueldo Neto Quincenal Final a Pagar:**  
-  FÃ³rmula Excel: `=(Sueldo_Bruto_Mensual - Descuento_Adicional) / 2 / 15 * (15 - Faltas)`  
-  CÃ¡lculo: `=(${bruto_mensual:,.2f} - ${descuento_adicional:,.2f}) / 2 / 15 * (15 - {faltas})`  
+  Fórmula Excel: `=(Sueldo_Bruto_Mensual - Descuento_Adicional) / 2 / 15 * (15 - Faltas)`  
+  Cálculo: `=(${bruto_mensual:,.2f} - ${descuento_adicional:,.2f}) / 2 / 15 * (15 - {faltas})`  
   Resultado: **${neto_quincenal:,.2f}**
 """
-
-            # Try to use AI API if key is present
-            provider = schema.get("ai_provider", "google").strip().lower()
-            api_key = get_ai_api_key(provider)
-            if not api_key:
-                self.send_json({"response": local_desglose, "rules_source": rules_source, "offline": True})
-                return
-
-            # Build contents payload (Google format, converted internally for OpenRouter)
-            contents = []
-            
-            # Map input chat_history to contents
-            for msg in chat_history:
-                role = msg.get("role")
-                text = msg.get("text", "")
-                if text:
-                    contents.append({
-                        "role": "user" if role == "user" else "model",
-                        "parts": [{"text": text}]
-                    })
-
-            # Handle user request
-            if new_message:
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": f"Pregunta sobre {nombre} ({cod}): {new_message}"}]
-                })
-            else:
-                collab_details = f"""Por favor, genera la explicaciÃ³n inicial y detallada del cÃ¡lculo de prenÃ³mina para este colaborador:
-DATOS DEL COLABORADOR:
+                collab_details = f"""Por favor, genera la explicación inicial y detallada del cálculo de prenómina para este colaborador:
+DATOS DEL COLABORADOR Y SU EMPRESA:
 - Nombre: {nombre}
-- CÃ³digo: {cod}
+- Código: {cod}
+- Empresa: {emp_company.get('nombre')} (Razón Social: {emp_company.get('razon_social')})
+- Régimen Fiscal de la Empresa: {emp_company.get('regimen')}
+- Prima de Riesgo de la Empresa: {emp_company.get('prima_riesgo')}%
 - Salario Diario: ${salario_diario:,.2f}
 - Fecha de Ingreso: {ingreso_str}
-- AntigÃ¼edad: {years_of_labores:.2f} aÃ±os ({vac} dÃas de vacaciones segÃºn LFT)
+- Antigüedad: {years_of_labores:.2f} años ({vac} días de vacaciones según LFT)
 - Cuenta con Fondo de Ahorro: {fondo_ahorro_activo}
 - Faltas registradas en la quincena: {faltas}
 
 VALORES REGISTRADOS EN EXCEL:
 - Salario Diario: ${salario_diario:,.2f}
-- Factor de IntegraciÃ³n: {fi:.4f}
+- Factor de Integración: {fi:.4f}
 - Salario Diario Integrado (SDI): ${sdi:,.2f}
 - Sueldo Nominal Mensual: ${sueldo_nominal:,.2f}
 - Premio de Puntualidad Mensual: ${puntualidad:,.2f}
@@ -3183,11 +3316,6 @@ VALORES REGISTRADOS EN EXCEL:
 - Descuento Adicional en Quincena: ${descuento_adicional:,.2f}
 - Sueldo Neto Quincenal Final: ${neto_quincenal:,.2f}
 """
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": collab_details}]
-                })
-
             # Get active dynamic deductions to include in prompt
             ded_cols = [col for col in schema.get("columns", []) if col.get("category") == "deduction" and col.get("incidence_editable")]
             dynamic_ded_fields_str = ""
@@ -3202,12 +3330,10 @@ Normativa y Reglas de Nómina aplicables:
 {rules_to_use}
 
 Deducciones de Ley Estimadas (para tu explicación contable):
-- IMSS Obrero Quincenal: Estimación del 2.375% sobre el Salario Diario Integrado (SDI) multiplicado por los días laborados reales: `SDI * 2.375% * (15 - faltas)` (solo cuenta las faltas del periodo actual).
-- ISR Quincenal Estimado: Estimación rápida sobre el sueldo bruto quincenal (Sueldo Bruto Mensual / 2):
-  * Si la quincena es menor o igual a $3,700: aplica 6% de ISR.
-  * Si la quincena es entre $3,701 y $7,000: aplica 10% de ISR.
-  * Si la quincena es entre $7,001 y $12,000: aplica 16% de ISR.
-  * Si la quincena es mayor a $12,000: aplica 20% de ISR.
+- Dependiendo del régimen fiscal de la empresa a la que pertenece el colaborador, estima los impuestos de la siguiente manera:
+  * Si el régimen es "Sueldos y Salarios / Asimilados": NO se descuenta/retiene IMSS Obrero. El ISR quincenal se estima de forma progresiva: si la quincena es menor o igual a $3,700 es 6%; entre $3,701 y $7,000 es 10%; entre $7,001 y $12,000 es 16%; y mayor a $12,000 es 20%.
+  * Si el régimen es "RESICO Personas Físicas": Se retiene IMSS Obrero normal (2.375% sobre el SDI multiplicado por los días laborados reales: `SDI * 2.375% * (15 - faltas)`). El ISR es una tasa fija del 1.25% sobre el sueldo bruto quincenal.
+  * Si el régimen es "Régimen General de Ley Personas Morales": Se retiene IMSS Obrero normal (2.375% sobre el SDI multiplicado por los días laborados reales: `SDI * 2.375% * (15 - faltas)`). El ISR quincenal se estima de forma progresiva (6%, 10%, 16%, 20%). La Prima de Riesgo de la empresa afecta el costo de seguridad social patronal total.
 - Siempre incluye un desglose estimado muy breve de estas deducciones fiscales de ley (ISR e IMSS) y el Neto quincenal estimado resultante en tu explicación. Si la incidencia es de una fecha pasada fuera del periodo de pago activo, aclara brevemente que no afectará el neto de esta quincena. Evita explicaciones extensas o redundantes de discrepancias.
 
 Instrucciones Especiales de Lógica Contable:
@@ -3243,6 +3369,39 @@ Formato del bloque JSON para cambios (debe ser un bloque de código Markdown con
 Nota: El descuento por faltas se calculará automáticamente con base en las faltas registradas. El descuento adicional es acumulativo para otros conceptos puntuales.
 """
 
+            # Build conversation contents
+            contents = []
+            for msg in chat_history:
+                role = "user" if msg.get("role") == "user" else "model"
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": msg.get("content", "")}]
+                })
+            
+            # Add user query
+            if not chat_history:
+                # If first message, prepend employee info
+                if is_global:
+                    # Global query
+                    emp_list_desc = ""
+                    for r_num, emp_d in all_employees_data:
+                        emp_list_desc += f"- {emp_d.get('nombre')} (Cód: {emp_d.get('id') or emp_d.get('employee_id') or ''}), Empresa: {emp_d.get('empresa')}, Reg: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('regimen', 'Régimen General de Ley Personas Morales')}, Prima: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('prima_riesgo', 0.5432)}%\n"
+                    
+                    contents.append({
+                        "role": "user",
+                        "parts": [{"text": f"Contexto de colaboradores registrados:\n{emp_list_desc}\n\nPregunta/Instrucción: {new_message}"}]
+                    })
+                else:
+                    contents.append({
+                        "role": "user",
+                        "parts": [{"text": f"{collab_details}\n\nPregunta/Instrucción: {new_message}"}]
+                    })
+            else:
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": new_message}]
+                })
+
             # Call AI Chat API (supports Google and OpenRouter)
             try:
                 text = call_ai_api_chat(system_prompt, contents, schema)
@@ -3252,6 +3411,7 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                 # Parse apply_changes from response text
                 applied_changes = False
                 proposed_changes = None
+                filter_employee_ids = None
                 try:
                     import re
                     # Robustly try to find a JSON block even if missing ```json
@@ -3260,191 +3420,225 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     if m:
                         json_str = m.group(1).strip()
                     else:
-                        # Try to find { "apply_changes": ... } inside the text directly
-                        m_direct = re.search(r"(\{.*?\"apply_changes\".*?\})", text, re.DOTALL)
+                        # Try to find { "apply_changes": ... } or { "filter_employee_ids": ... } inside the text directly
+                        m_direct = re.search(r"(\{.*?(?:\"apply_changes\"|\"filter_employee_ids\").*?\})", text, re.DOTALL)
                         if m_direct:
                             json_str = m_direct.group(1).strip()
                     
                     if json_str:
                         changes_data = json.loads(json_str)
+                        if "filter_employee_ids" in changes_data:
+                            filter_employee_ids = changes_data["filter_employee_ids"]
+                            if not isinstance(filter_employee_ids, list):
+                                filter_employee_ids = [str(filter_employee_ids)]
+                            else:
+                                filter_employee_ids = [str(fid) for fid in filter_employee_ids]
+                        
                         if "apply_changes" in changes_data:
                             changes = changes_data["apply_changes"]
                             
-                            # Open workbook to apply changes
-                            wb = load_workbook_agnostic(excel_path, data_only=False)
-                            ws = wb.active
-                            
-                            # Find employee row
-                            nombre_col = get_field_index(schema, "nombre")
-                            id_col = get_field_index(schema, "id")
-                            headers_row = find_headers_row(ws)
-                            row = headers_row + 1
-                            found_row = None
-                            is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
-                            temp_row_resolved = None
-                            if is_temp_id:
-                                try: temp_row_resolved = int(cod.split("_")[1])
-                                except ValueError: pass
-
-                            while True:
-                                nombre_val = ws.cell(row=row, column=nombre_col).value
-                                cod_val = ws.cell(row=row, column=id_col).value
-                                if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
-                                    break
-                                if nombre_val is None and cod_val is None:
-                                    break
-                                if temp_row_resolved == row:
-                                    found_row = row
-                                    break
-                                elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
-                                    found_row = row
-                                    break
-                                row += 1
-
-                            if found_row:
-                                nombre_val = ws.cell(row=found_row, column=nombre_col).value
-                                
-                                # Determine appropriate date (either today, or active period start date, or custom AI date) in Mexico timezone
+                            # If changes is a list of proposed changes
+                            if isinstance(changes, list):
+                                proposed_changes = []
                                 import datetime
                                 tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
                                 today_mex = datetime.datetime.now(tz_mex).date()
-                                today_str = today_mex.strftime("%Y-%m-%d")
-                                period_str = schema.get("period", "16 al 30 Abr 2026")
-                                start_date, end_date = parse_period_dates(period_str)
+                                default_date_str = today_mex.strftime("%Y-%m-%d")
                                 
-                                # Use custom date from changes if provided
-                                custom_date_str = changes.get("date") or changes.get("fecha")
-                                if custom_date_str:
-                                    custom_date = parse_date_robust(custom_date_str)
-                                    if custom_date:
-                                        today_str = custom_date.strftime("%Y-%m-%d")
-                                else:
-                                    if not (start_date <= today_mex <= end_date):
-                                        today_str = start_date.strftime("%Y-%m-%d")
-
-                                # Try to load existing incidence on today_str for this employee
-                                ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
-                                existing_inc = {
-                                    "faltas": 0,
-                                    "retardos": 0,
-                                    "vacaciones": 0,
-                                    "descuento_adicional": 0.0,
-                                    "puntualidad": "SI",
-                                    "asistencia": "SI",
-                                    "observaciones": "",
-                                    "forzar_asistencia": "NO",
-                                    "forzar_puntualidad": "NO",
-                                    "forzar_vales": "NO",
-                                    "ajuste_vales": None,
-                                    "ajuste_fondo_ahorro": None
-                                }
-                                for col in schema.get("columns", []):
-                                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                                        existing_inc[col.get("field")] = 0.0
-
-                                if ws_inc:
-                                    # Ensure Incidencias is migrated if needed
-                                    heal_incidences_sheet_if_needed(wb, schema)
-                                    max_c = ws_inc.max_column
-                                    for r in range(2, ws_inc.max_row + 1):
-                                        r_date = ws_inc.cell(row=r, column=1).value
-                                        r_cod = ws_inc.cell(row=r, column=2).value
-                                        if r_date and r_cod and str(r_date)[:10] == today_str and str(r_cod).strip() == str(cod).strip():
-                                            existing_inc["faltas"] = int(ws_inc.cell(row=r, column=4).value or 0)
-                                            existing_inc["retardos"] = int(ws_inc.cell(row=r, column=5).value or 0)
-                                            existing_inc["vacaciones"] = int(ws_inc.cell(row=r, column=6).value or 0)
-                                            existing_inc["descuento_adicional"] = float(ws_inc.cell(row=r, column=7).value or 0.0)
-                                            existing_inc["puntualidad"] = ws_inc.cell(row=r, column=8).value or "SI"
-                                            existing_inc["asistencia"] = ws_inc.cell(row=r, column=9).value or "SI"
-                                            existing_inc["observaciones"] = ws_inc.cell(row=r, column=10).value or ""
-                                            existing_inc["forzar_asistencia"] = str(ws_inc.cell(row=r, column=11).value or "NO") if max_c >= 11 else "NO"
-                                            existing_inc["forzar_puntualidad"] = str(ws_inc.cell(row=r, column=12).value or "NO") if max_c >= 12 else "NO"
-                                            existing_inc["forzar_vales"] = str(ws_inc.cell(row=r, column=13).value or "NO") if max_c >= 13 else "NO"
-                                            existing_inc["ajuste_vales"] = ws_inc.cell(row=r, column=14).value if max_c >= 14 else None
-                                            existing_inc["ajuste_fondo_ahorro"] = ws_inc.cell(row=r, column=15).value if max_c >= 15 else None
-                                            
-                                            # Read dynamic deduction columns starting from index 16
-                                            col_idx = 16
-                                            for col in schema.get("columns", []):
-                                                if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                                                    existing_inc[col.get("field")] = float(ws_inc.cell(row=r, column=col_idx).value or 0.0)
-                                                    col_idx += 1
+                                for change_item in changes:
+                                    change_cod = change_item.get("id") or change_item.get("employee_id") or cod
+                                    c_name = ""
+                                    for r_num, emp_d in all_employees_data:
+                                        if str(emp_d.get("id")).strip() == str(change_cod).strip():
+                                            c_name = emp_d.get("nombre", "")
                                             break
-                                
-                                # Override with AI changes
-                                ai_faltas = changes.get("faltas")
-                                if ai_faltas is not None:
-                                    existing_inc["faltas"] = int(ai_faltas)
-                                
-                                ai_retardos = changes.get("retardos")
-                                if ai_retardos is not None:
-                                    existing_inc["retardos"] = int(ai_retardos)
                                     
-                                ai_vacaciones = changes.get("vacaciones")
-                                if ai_vacaciones is not None:
-                                    existing_inc["vacaciones"] = int(ai_vacaciones)
-                                
-                                ai_desc = changes.get("descuento_adicional")
-                                if ai_desc is not None:
-                                    existing_inc["descuento_adicional"] = float(ai_desc)
-                                    
-                                ai_obs = changes.get("observaciones")
-                                if ai_obs is not None:
-                                    existing_inc["observaciones"] = str(ai_obs)
-                                    
-                                ai_punt = changes.get("puntualidad")
-                                if ai_punt is not None:
-                                    existing_inc["puntualidad"] = "SI" if (ai_punt is True or str(ai_punt).upper() == "SI") else "NO"
-                                    
-                                ai_asist = changes.get("asistencia")
-                                if ai_asist is not None:
-                                    existing_inc["asistencia"] = "SI" if (ai_asist is True or str(ai_asist).upper() == "SI") else "NO"
-                                    
-                                ai_forzar_asist = changes.get("forzar_asistencia")
-                                if ai_forzar_asist is not None:
-                                    existing_inc["forzar_asistencia"] = "SI" if (ai_forzar_asist is True or str(ai_forzar_asist).upper() == "SI") else "NO"
-                                    
-                                ai_forzar_punt = changes.get("forzar_puntualidad")
-                                if ai_forzar_punt is not None:
-                                    existing_inc["forzar_puntualidad"] = "SI" if (ai_forzar_punt is True or str(ai_forzar_punt).upper() == "SI") else "NO"
-                                    
-                                ai_forzar_val = changes.get("forzar_vales")
-                                if ai_forzar_val is not None:
-                                    existing_inc["forzar_vales"] = "SI" if (ai_forzar_val is True or str(ai_forzar_val).upper() == "SI") else "NO"
-                                    
-                                ai_ajuste_vales = changes.get("ajuste_vales")
-                                if ai_ajuste_vales is not None:
-                                    try:
-                                        existing_inc["ajuste_vales"] = float(ai_ajuste_vales) if ai_ajuste_vales not in ["", None] else None
-                                    except ValueError:
-                                        pass
-                                        
-                                ai_ajuste_fa = changes.get("ajuste_fondo_ahorro")
-                                if ai_ajuste_fa is not None:
-                                    try:
-                                        existing_inc["ajuste_fondo_ahorro"] = float(ai_ajuste_fa) if ai_ajuste_fa not in ["", None] else None
-                                    except ValueError:
-                                        pass
-                                    
-                                # Read and override dynamic deductions from changes
-                                for col in schema.get("columns", []):
-                                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                                        f_name = col.get("field")
-                                        ai_val = changes.get(f_name)
-                                        if ai_val is not None:
-                                            existing_inc[f_name] = float(ai_val)
-
-                                # Save to Incidencias log
-                                incidence_data = {
-                                    "date": today_str,
-                                    "id": cod,
-                                    "nombre": nombre_val or "",
-                                    **existing_inc
-                                }
-                                # Phase 3: Do not apply automatically, return as proposed
-                                proposed_changes = incidence_data
+                                    item_proposed = {
+                                        "date": change_item.get("date") or change_item.get("fecha") or default_date_str,
+                                        "id": change_cod,
+                                        "nombre": c_name,
+                                        "faltas": int(change_item.get("faltas", 0)) if change_item.get("faltas") is not None else 0,
+                                        "retardos": int(change_item.get("retardos", 0)) if change_item.get("retardos") is not None else 0,
+                                        "vacaciones": int(change_item.get("vacaciones", 0)) if change_item.get("vacaciones") is not None else 0,
+                                        "descuento_adicional": float(change_item.get("descuento_adicional", 0.0)) if change_item.get("descuento_adicional") is not None else 0.0,
+                                        "puntualidad": "SI" if change_item.get("puntualidad", True) in [True, "SI"] else "NO",
+                                        "asistencia": "SI" if change_item.get("asistencia", True) in [True, "SI"] else "NO",
+                                        "observaciones": change_item.get("observaciones") or ""
+                                    }
+                                    for col in schema.get("columns", []):
+                                        if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                                            f_name = col.get("field")
+                                            if f_name in change_item:
+                                                item_proposed[f_name] = float(change_item[f_name])
+                                    proposed_changes.append(item_proposed)
                                 applied_changes = False
-                            wb.close()
+                            else:
+                                # It's a single dictionary
+                                wb = load_workbook_agnostic(excel_path, data_only=False)
+                                ws = wb.active
+                                
+                                # Find employee row
+                                nombre_col = get_field_index(schema, "nombre")
+                                id_col = get_field_index(schema, "id")
+                                headers_row = find_headers_row(ws)
+                                row = headers_row + 1
+                                found_row = None
+                                is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+                                temp_row_resolved = None
+                                if is_temp_id:
+                                    try: temp_row_resolved = int(cod.split("_")[1])
+                                    except ValueError: pass
+
+                                while True:
+                                    nombre_val = ws.cell(row=row, column=nombre_col).value
+                                    cod_val = ws.cell(row=row, column=id_col).value
+                                    if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                                        break
+                                    if nombre_val is None and cod_val is None:
+                                        break
+                                    if temp_row_resolved == row:
+                                        found_row = row
+                                        break
+                                    elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
+                                        found_row = row
+                                        break
+                                    row += 1
+
+                                if found_row:
+                                    nombre_val = ws.cell(row=found_row, column=nombre_col).value
+                                    
+                                    import datetime
+                                    tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
+                                    today_mex = datetime.datetime.now(tz_mex).date()
+                                    today_str = today_mex.strftime("%Y-%m-%d")
+                                    period_str = schema.get("period", "16 al 30 Abr 2026")
+                                    start_date, end_date = parse_period_dates(period_str)
+                                    
+                                    custom_date_str = changes.get("date") or changes.get("fecha")
+                                    if custom_date_str:
+                                        custom_date = parse_date_robust(custom_date_str)
+                                        if custom_date:
+                                            today_str = custom_date.strftime("%Y-%m-%d")
+                                    else:
+                                        if not (start_date <= today_mex <= end_date):
+                                            today_str = start_date.strftime("%Y-%m-%d")
+
+                                    ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
+                                    existing_inc = {
+                                        "faltas": 0,
+                                        "retardos": 0,
+                                        "vacaciones": 0,
+                                        "descuento_adicional": 0.0,
+                                        "puntualidad": "SI",
+                                        "asistencia": "SI",
+                                        "observaciones": "",
+                                        "forzar_asistencia": "NO",
+                                        "forzar_puntualidad": "NO",
+                                        "forzar_vales": "NO",
+                                        "ajuste_vales": None,
+                                        "ajuste_fondo_ahorro": None
+                                    }
+                                    for col in schema.get("columns", []):
+                                        if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                                            existing_inc[col.get("field")] = 0.0
+
+                                    if ws_inc:
+                                        heal_incidences_sheet_if_needed(wb, schema)
+                                        max_c = ws_inc.max_column
+                                        for r in range(2, ws_inc.max_row + 1):
+                                            r_date = ws_inc.cell(row=r, column=1).value
+                                            r_cod = ws_inc.cell(row=r, column=2).value
+                                            if r_date and r_cod and str(r_date)[:10] == today_str and str(r_cod).strip() == str(cod).strip():
+                                                existing_inc["faltas"] = int(ws_inc.cell(row=r, column=4).value or 0)
+                                                existing_inc["retardos"] = int(ws_inc.cell(row=r, column=5).value or 0)
+                                                existing_inc["vacaciones"] = int(ws_inc.cell(row=r, column=6).value or 0)
+                                                existing_inc["descuento_adicional"] = float(ws_inc.cell(row=r, column=7).value or 0.0)
+                                                existing_inc["puntualidad"] = ws_inc.cell(row=r, column=8).value or "SI"
+                                                existing_inc["asistencia"] = ws_inc.cell(row=r, column=9).value or "SI"
+                                                existing_inc["observaciones"] = ws_inc.cell(row=r, column=10).value or ""
+                                                existing_inc["forzar_asistencia"] = str(ws_inc.cell(row=r, column=11).value or "NO") if max_c >= 11 else "NO"
+                                                existing_inc["forzar_puntualidad"] = str(ws_inc.cell(row=r, column=12).value or "NO") if max_c >= 12 else "NO"
+                                                existing_inc["forzar_vales"] = str(ws_inc.cell(row=r, column=13).value or "NO") if max_c >= 13 else "NO"
+                                                existing_inc["ajuste_vales"] = ws_inc.cell(row=r, column=14).value if max_c >= 14 else None
+                                                existing_inc["ajuste_fondo_ahorro"] = ws_inc.cell(row=r, column=15).value if max_c >= 15 else None
+                                                
+                                                col_idx = 16
+                                                for col in schema.get("columns", []):
+                                                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                                                        existing_inc[col.get("field")] = float(ws_inc.cell(row=r, column=col_idx).value or 0.0)
+                                                        col_idx += 1
+                                                break
+                                    
+                                    ai_faltas = changes.get("faltas")
+                                    if ai_faltas is not None:
+                                        existing_inc["faltas"] = int(ai_faltas)
+                                    
+                                    ai_retardos = changes.get("retardos")
+                                    if ai_retardos is not None:
+                                        existing_inc["retardos"] = int(ai_retardos)
+                                        
+                                    ai_vacaciones = changes.get("vacaciones")
+                                    if ai_vacaciones is not None:
+                                        existing_inc["vacaciones"] = int(ai_vacaciones)
+                                    
+                                    ai_desc = changes.get("descuento_adicional")
+                                    if ai_desc is not None:
+                                        existing_inc["descuento_adicional"] = float(ai_desc)
+                                        
+                                    ai_obs = changes.get("observaciones")
+                                    if ai_obs is not None:
+                                        existing_inc["observaciones"] = str(ai_obs)
+                                        
+                                    ai_punt = changes.get("puntualidad")
+                                    if ai_punt is not None:
+                                        existing_inc["puntualidad"] = "SI" if (ai_punt is True or str(ai_punt).upper() == "SI") else "NO"
+                                        
+                                    ai_asist = changes.get("asistencia")
+                                    if ai_asist is not None:
+                                        existing_inc["asistencia"] = "SI" if (ai_asist is True or str(ai_asist).upper() == "SI") else "NO"
+                                        
+                                    ai_forzar_asist = changes.get("forzar_asistencia")
+                                    if ai_forzar_asist is not None:
+                                        existing_inc["forzar_asistencia"] = "SI" if (ai_forzar_asist is True or str(ai_forzar_asist).upper() == "SI") else "NO"
+                                        
+                                    ai_forzar_punt = changes.get("forzar_puntualidad")
+                                    if ai_forzar_punt is not None:
+                                        existing_inc["forzar_puntualidad"] = "SI" if (ai_forzar_punt is True or str(ai_forzar_punt).upper() == "SI") else "NO"
+                                        
+                                    ai_forzar_val = changes.get("forzar_vales")
+                                    if ai_forzar_val is not None:
+                                        existing_inc["forzar_vales"] = "SI" if (ai_forzar_val is True or str(ai_forzar_val).upper() == "SI") else "NO"
+                                        
+                                    ai_ajuste_vales = changes.get("ajuste_vales")
+                                    if ai_ajuste_vales is not None:
+                                        try:
+                                            existing_inc["ajuste_vales"] = float(ai_ajuste_vales) if ai_ajuste_vales not in ["", None] else None
+                                        except ValueError:
+                                            pass
+                                            
+                                    ai_ajuste_fa = changes.get("ajuste_fondo_ahorro")
+                                    if ai_ajuste_fa is not None:
+                                        try:
+                                            existing_inc["ajuste_fondo_ahorro"] = float(ai_ajuste_fa) if ai_ajuste_fa not in ["", None] else None
+                                        except ValueError:
+                                            pass
+                                        
+                                    for col in schema.get("columns", []):
+                                        if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                                            f_name = col.get("field")
+                                            ai_val = changes.get(f_name)
+                                            if ai_val is not None:
+                                                existing_inc[f_name] = float(ai_val)
+
+                                    incidence_data = {
+                                        "date": today_str,
+                                        "id": cod,
+                                        "nombre": nombre_val or "",
+                                        **existing_inc
+                                    }
+                                    proposed_changes = [incidence_data]
+                                    applied_changes = False
+                                wb.close()
                 except PermissionError as pe:
                     try: wb.close()
                     except: pass
@@ -3454,7 +3648,14 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     try: wb.close()
                     except: pass
 
-                self.send_json({"response": text, "rules_source": rules_source, "offline": False, "applied_changes": applied_changes, "proposed_changes": proposed_changes})
+                self.send_json({
+                    "response": text,
+                    "rules_source": rules_source,
+                    "offline": False,
+                    "applied_changes": applied_changes,
+                    "proposed_changes": proposed_changes,
+                    "filter_employee_ids": filter_employee_ids
+                })
             except PermissionError as perm_e:
                 print("Excel file is locked during explain_payroll:", perm_e)
                 self.send_json({"error": f"El archivo '{os.path.basename(excel_path)}' estÃ¡ abierto en Microsoft Excel o bloqueado por el sistema. Por favor, cierra el archivo local e intÃ©ntalo de nuevo."}, 500)

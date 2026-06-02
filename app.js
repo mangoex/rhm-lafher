@@ -142,7 +142,9 @@ document.addEventListener("DOMContentLoaded", () => {
     activeTab: "dashboard",
     selectedIncidenceEmployeeId: null,
     period: "16 al 30 Abr 2026",
-    currentEmployeeIncidences: []
+    currentEmployeeIncidences: [],
+    companies: [],
+    filterEmployeeIds: null
   };
 
   // 2. Load State from Python API
@@ -211,8 +213,10 @@ document.addEventListener("DOMContentLoaded", () => {
         // Populate dynamic inputs in collaborator and incidences forms
         generateDynamicInputs();
 
-        // Now load employees
-        return fetch("/api/employees?_t=" + Date.now());
+        return loadCompanies().then(() => {
+          // Now load employees
+          return fetch("/api/employees?_t=" + Date.now());
+        });
       })
       .then(res => {
         if (!res.ok) {
@@ -1313,6 +1317,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let idx = 1;
     state.employees.forEach(emp => {
+      if (state.filterEmployeeIds && !state.filterEmployeeIds.includes(String(emp.id))) {
+        return;
+      }
       const calc = calculateEmployeePayroll(emp, state.config);
       
       if (!calc.isBaja) {
@@ -2405,6 +2412,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         appendAssistantMessage(data.response);
 
+        if (data.filter_employee_ids && data.filter_employee_ids.length > 0) {
+          state.filterEmployeeIds = data.filter_employee_ids;
+          const filterBadge = document.getElementById("prenomina-filter-badge");
+          if (filterBadge) filterBadge.style.display = "inline-flex";
+          renderPrenomina();
+        }
+
         if (data.proposed_changes) {
           const confirmBox = document.createElement("div");
           confirmBox.className = "chat-message assistant";
@@ -2422,10 +2436,14 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         } else if (data.applied_changes) {
           showToast("Se aplicaron las incidencias solicitadas a través de la IA.", "success");
-          state.selectedIncidenceEmployeeId = currentAIEmployeeId;
-          loadState().then(() => {
-            selectIncidenceEmployee(currentAIEmployeeId);
-          });
+          if (currentAIEmployeeId && currentAIEmployeeId !== "GLOBAL") {
+            state.selectedIncidenceEmployeeId = currentAIEmployeeId;
+            loadState().then(() => {
+              selectIncidenceEmployee(currentAIEmployeeId);
+            });
+          } else {
+            loadState();
+          }
         }
         
         chatInput.disabled = false;
@@ -2593,44 +2611,305 @@ document.addEventListener("DOMContentLoaded", () => {
     return new Date().toISOString().split("T")[0];
   }
 
-  const periodSelect = document.getElementById("period-select");
-  if (periodSelect) {
-    periodSelect.addEventListener("change", (e) => {
-      const newPeriod = e.target.value;
-      fetch("/api/period", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
-        },
-        body: JSON.stringify({ period: newPeriod })
+  // Companies Catalog & Global AI Chat Logic
+  function loadCompanies() {
+    return fetch("/api/companies?_t=" + Date.now())
+      .then(res => res.json())
+      .then(companies => {
+        state.companies = companies;
+        populateCompanySelectors();
+        renderCompaniesCatalog();
       })
-        .then(res => res.json())
-        .then(resData => {
-          if (resData.error) {
-            showToast(resData.error, "error");
-            return;
-          }
-          showToast(`Periodo cambiado a: ${newPeriod}`);
-          loadState();
-        })
-        .catch(err => {
-          console.error("Error cambiando periodo:", err);
-          showToast("Error al actualizar el periodo.", "error");
-        });
+      .catch(err => console.error("Error cargando catálogo de empresas:", err));
+  }
+
+  function populateCompanySelectors() {
+    const colEmpresa = document.getElementById("col-empresa");
+    const filterEmpresa = document.getElementById("filter-empresa");
+    
+    if (colEmpresa) {
+      colEmpresa.innerHTML = state.companies.map(c => `
+        <option value="${escapeHtml(c.nombre)}">${escapeHtml(c.nombre)}</option>
+      `).join("");
+    }
+    
+    if (filterEmpresa) {
+      filterEmpresa.innerHTML = `
+        <option value="">Todas las Empresas</option>
+      ` + state.companies.map(c => `
+        <option value="${escapeHtml(c.nombre)}">${escapeHtml(c.nombre)}</option>
+      `).join("");
+    }
+  }
+
+  function renderCompaniesCatalog() {
+    const tableBody = document.getElementById("companies-list-table");
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = state.companies.map(c => `
+      <tr>
+        <td style="font-weight: 600;">${escapeHtml(c.nombre)}</td>
+        <td>${escapeHtml(c.regimen)}</td>
+        <td>${c.prima_riesgo.toFixed(4)}%</td>
+        <td>
+          <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; margin-right: 5px; display: inline-flex; align-items: center;" onclick="editCompany('${c.id}')">
+            <i data-lucide="edit-3" style="width: 12px; height: 12px; margin-right: 2px;"></i> Editar
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" style="padding: 2px 8px; background: var(--danger); border: none; display: inline-flex; align-items: center;" onclick="deleteCompany('${c.id}')">
+            <i data-lucide="trash" style="width: 12px; height: 12px; margin-right: 2px;"></i> Eliminar
+          </button>
+        </td>
+      </tr>
+    `).join("");
+    
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function editCompany(id) {
+    const comp = state.companies.find(c => String(c.id) === String(id));
+    if (!comp) return;
+    
+    document.getElementById("company-id").value = comp.id;
+    document.getElementById("company-nombre").value = comp.nombre;
+    document.getElementById("company-razon-social").value = comp.razon_social;
+    document.getElementById("company-regimen").value = comp.regimen;
+    document.getElementById("company-prima-riesgo").value = comp.prima_riesgo;
+    
+    document.getElementById("company-form-title").innerHTML = '<i data-lucide="edit"></i> Editar Empresa';
+    document.getElementById("btn-cancel-company").style.display = "inline-block";
+    
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function deleteCompany(id) {
+    if (!confirm("¿Estás seguro de que deseas eliminar esta empresa del catálogo? Esto podría afectar a los colaboradores asignados a ella.")) return;
+    
+    fetch(`/api/companies?id=${id}`, {
+      method: "DELETE"
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        showToast(data.error, "error");
+      } else {
+        showToast("Empresa eliminada del catálogo exitosamente", "success");
+        loadCompanies();
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      showToast("Error al eliminar empresa", "error");
     });
   }
+
+  function openAIGlobalChat() {
+    currentAIEmployeeId = "GLOBAL";
+    aiChatHistory = [];
+    
+    const tbody = document.getElementById("prenomina-table-body");
+    if (tbody) {
+      tbody.querySelectorAll("tr").forEach(tr => tr.classList.remove("selected-row"));
+    }
+    
+    const sidebar = document.getElementById("prenomina-ai-sidebar");
+    const nameDiv = document.getElementById("ai-collab-name");
+    const detailsDiv = document.getElementById("ai-collab-details");
+    const messagesDiv = document.getElementById("ai-chat-messages");
+    const chatInput = document.getElementById("ai-chat-input");
+    const chatSendBtn = document.getElementById("btn-ai-chat-send");
+    const badge = document.getElementById("ai-rules-badge");
+    
+    if (sidebar) sidebar.classList.add("active");
+    if (nameDiv) nameDiv.textContent = "Consulta Global de Prenómina";
+    if (detailsDiv) detailsDiv.textContent = "Haciendo preguntas a la IA sobre todos los colaboradores";
+    
+    if (messagesDiv) {
+      messagesDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; padding: 2rem;">
+          <div class="ai-typing-indicator">
+            <div class="ai-typing-dot"></div>
+            <div class="ai-typing-dot"></div>
+            <div class="ai-typing-dot"></div>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Generando resumen de nómina global...</p>
+        </div>
+      `;
+    }
+    
+    if (chatInput) {
+      chatInput.disabled = true;
+      chatInput.value = "";
+    }
+    if (chatSendBtn) chatSendBtn.disabled = true;
+    
+    fetch("/api/payroll/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        employee_id: "GLOBAL",
+        chat_history: [],
+        new_message: ""
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          if (messagesDiv) {
+            messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: ${escapeHtml(data.error)}</p></div>`;
+          }
+          return;
+        }
+        
+        if (badge) {
+          if (data.offline) {
+            badge.textContent = "Offline / Local";
+            badge.className = "badge rules-badge-offline";
+          } else if (data.rules_source === "custom") {
+            badge.textContent = "Reglas Empresa";
+            badge.className = "badge rules-badge-custom";
+          } else {
+            badge.textContent = "Reglas Oficiales LFT";
+            badge.className = "badge rules-badge-official";
+          }
+        }
+
+        if (messagesDiv) {
+          messagesDiv.innerHTML = "";
+        }
+        appendAssistantMessage(data.response);
+        
+        if (chatInput) chatInput.disabled = false;
+        if (chatSendBtn) chatSendBtn.disabled = false;
+        if (chatInput) chatInput.focus();
+        
+        if (window.lucide) lucide.createIcons();
+      })
+      .catch(err => {
+        console.error("Error fetching global explanation:", err);
+        if (messagesDiv) {
+          messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error de conexión al obtener la explicación global.</p></div>`;
+        }
+      });
+  }
+
+  function clearPrenominaFilter() {
+    state.filterEmployeeIds = null;
+    const filterBadge = document.getElementById("prenomina-filter-badge");
+    if (filterBadge) {
+      filterBadge.style.display = "none";
+    }
+    renderPrenomina();
+  }
+
+  // Setup company catalog form and cancel button listeners
+  const companyForm = document.getElementById("form-company");
+  if (companyForm) {
+    companyForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      
+      const id = document.getElementById("company-id").value;
+      const nombre = document.getElementById("company-nombre").value.trim();
+      const razon_social = document.getElementById("company-razon-social").value.trim();
+      const regimen = document.getElementById("company-regimen").value;
+      const prima_riesgo = parseFloat(document.getElementById("company-prima-riesgo").value);
+      
+      if (isNaN(prima_riesgo) || prima_riesgo < 0) {
+        showToast("La prima de riesgo debe ser un número positivo.", "error");
+        return;
+      }
+      
+      const payload = { nombre, razon_social, regimen, prima_riesgo };
+      if (id) payload.id = id;
+      
+      fetch("/api/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          showToast(data.error, "error");
+        } else {
+          showToast("Empresa guardada exitosamente", "success");
+          companyForm.reset();
+          document.getElementById("company-id").value = "";
+          document.getElementById("company-form-title").innerHTML = '<i data-lucide="plus-circle"></i> Registrar / Editar Empresa';
+          document.getElementById("btn-cancel-company").style.display = "none";
+          loadCompanies();
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        showToast("Error al guardar empresa", "error");
+      });
+    });
+  }
+
+  const cancelCompanyBtn = document.getElementById("btn-cancel-company");
+  if (cancelCompanyBtn) {
+    cancelCompanyBtn.addEventListener("click", () => {
+      if (companyForm) companyForm.reset();
+      document.getElementById("company-id").value = "";
+      document.getElementById("company-form-title").innerHTML = '<i data-lucide="plus-circle"></i> Registrar / Editar Empresa';
+      cancelCompanyBtn.style.display = "none";
+      if (window.lucide) lucide.createIcons();
+    });
+  }
+
+  // Hook global AI and clear filter buttons
+  const btnOpenAiGlobal = document.getElementById("btn-open-ai-global");
+  if (btnOpenAiGlobal) {
+    btnOpenAiGlobal.addEventListener("click", openAIGlobalChat);
+  }
+
+  const btnClearFilter = document.getElementById("btn-clear-prenomina-filter");
+  if (btnClearFilter) {
+    btnClearFilter.addEventListener("click", clearPrenominaFilter);
+  }
+
+  // Expose local AI state variables and functions to window context
+  Object.defineProperty(window, 'currentAIEmployeeId', {
+    get: () => currentAIEmployeeId,
+    set: (v) => { currentAIEmployeeId = v; }
+  });
+  Object.defineProperty(window, 'aiChatHistory', {
+    get: () => aiChatHistory,
+    set: (v) => { aiChatHistory = v; }
+  });
+  window.state = state;
+  window.loadState = loadState;
+  window.selectIncidenceEmployee = selectIncidenceEmployee;
+  window.openAIGlobalChat = openAIGlobalChat;
+  window.clearPrenominaFilter = clearPrenominaFilter;
+  window.editCompany = editCompany;
+  window.deleteCompany = deleteCompany;
+  window.loadCompanies = loadCompanies;
 
 });
 
 window.applyAIProposedChanges = function(changes) {
-  if (!window.currentAIEmployeeId) return;
-  changes.employee_id = window.currentAIEmployeeId;
+  let bodyData;
+  if (Array.isArray(changes)) {
+    bodyData = changes.map(item => {
+      const copy = { ...item };
+      if (!copy.id && !copy.employee_id && window.currentAIEmployeeId && window.currentAIEmployeeId !== "GLOBAL") {
+        copy.id = window.currentAIEmployeeId;
+      }
+      return copy;
+    });
+  } else {
+    const copy = { ...changes };
+    if (!copy.id && !copy.employee_id && window.currentAIEmployeeId && window.currentAIEmployeeId !== "GLOBAL") {
+      copy.id = window.currentAIEmployeeId;
+    }
+    bodyData = [copy];
+  }
   
   fetch("/api/incidences", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(changes)
+    body: JSON.stringify(bodyData)
   })
   .then(r => r.json())
   .then(res => {
@@ -2644,12 +2923,16 @@ window.applyAIProposedChanges = function(changes) {
          messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
       if (typeof window.state !== 'undefined' && typeof window.loadState === 'function') {
-        window.state.selectedIncidenceEmployeeId = window.currentAIEmployeeId;
-        window.loadState().then(() => {
-          if (typeof window.selectIncidenceEmployee === 'function') {
-            window.selectIncidenceEmployee(window.currentAIEmployeeId);
-          }
-        });
+        if (window.currentAIEmployeeId && window.currentAIEmployeeId !== "GLOBAL") {
+          window.state.selectedIncidenceEmployeeId = window.currentAIEmployeeId;
+          window.loadState().then(() => {
+            if (typeof window.selectIncidenceEmployee === 'function') {
+              window.selectIncidenceEmployee(window.currentAIEmployeeId);
+            }
+          });
+        } else {
+          window.loadState();
+        }
       }
     }
   })
