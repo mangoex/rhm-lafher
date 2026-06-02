@@ -2244,7 +2244,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const messagesDiv = document.getElementById("ai-chat-messages");
     if (!messagesDiv) return;
     
-    const formatted = formatMarkdown(text);
+    // Strip JSON block containing "apply_changes" so the user doesn't see it
+    let cleanText = text || "";
+    cleanText = cleanText.replace(/```(?:json)?\s*\{[\s\S]*?"apply_changes"[\s\S]*?\}\s*```/gi, "");
+    cleanText = cleanText.trim();
+
+    const formatted = formatMarkdown(cleanText);
     const msgElement = document.createElement("div");
     msgElement.className = "chat-message assistant";
     msgElement.innerHTML = formatted;
