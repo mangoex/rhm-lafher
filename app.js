@@ -169,7 +169,7 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleAIProviderModels(provider);
           
           if (modelSelect) {
-            const model = schemaData.ai_model || "gemini-2.0-flash";
+            const model = schemaData.ai_model || "gemini-2.5-flash";
             // Check if model exists as an option
             let optionExists = false;
             for (let i = 0; i < modelSelect.options.length; i++) {
@@ -1400,7 +1400,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (provider === "openrouter") {
           modelSelect.value = "meta-llama/llama-3.3-70b-instruct:free";
         } else if (provider === "google") {
-          modelSelect.value = "gemini-2.0-flash";
+          modelSelect.value = "gemini-2.5-flash";
         }
         modelSelect.dispatchEvent(new Event("change"));
       }
@@ -1432,9 +1432,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
       
       const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
-      const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.0-flash";
+      const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.5-flash";
       const ai_model = modelSelectVal === "custom" 
-        ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.0-flash")
+        ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.5-flash")
         : modelSelectVal;
       const rules = document.getElementById("cfg-payroll-rules") ? document.getElementById("cfg-payroll-rules").value : "";
  
@@ -1574,12 +1574,10 @@ document.addEventListener("DOMContentLoaded", () => {
               const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
               const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
               
-              const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
-              const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.0-flash";
+              const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.5-flash";
               const ai_model = modelSelectVal === "custom" 
-                ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.0-flash")
+                ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.5-flash")
                 : modelSelectVal;
-              const api_key = document.getElementById("cfg-ai-key") ? document.getElementById("cfg-ai-key").value.trim() : "";
 
               showToast("Guardando ruta de archivo y cargando datos...", "info");
 
@@ -1605,26 +1603,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                   }
                   
-                  if (api_key) {
-                    fetch("/api/secrets", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ ai_api_key: api_key })
-                    })
-                      .then(sRes => sRes.json())
-                      .then(sData => {
-                        showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y configuración guardada con éxito.", "success");
-                        loadState();
-                      })
-                      .catch(err => {
-                        console.error("Error saving API key:", err);
-                        showToast("Conectado con éxito, pero falló al registrar la clave API.", "warning");
-                        loadState();
-                      });
-                  } else {
-                    showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
-                    loadState();
-                  }
+                  showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
+                  loadState();
                 })
                 .catch(err => {
                   console.error("Error al guardar ruta seleccionada:", err);

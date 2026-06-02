@@ -706,7 +706,7 @@ def recompile_active_period_incidences(wb, schema):
         row += 1
 
 def load_schema():
-    default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "ai_provider": "google", "ai_model": "gemini-2.0-flash", "pending_clarifications": [], "payroll_rules": ""}
+    default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "ai_provider": "google", "ai_model": "gemini-2.5-flash", "pending_clarifications": [], "payroll_rules": ""}
     if not os.path.exists(SCHEMA_PATH):
         docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
         default_schema["payroll_rules"] = extract_default_payroll_rules(docx_local)
@@ -1031,7 +1031,7 @@ def get_ai_config(schema):
     provider = schema.get("ai_provider", "google").strip().lower()
     if provider == "none":
         return {"provider": "none", "model": "", "api_key": ""}
-    model = schema.get("ai_model", "gemini-2.0-flash").strip()
+    model = schema.get("ai_model", "gemini-2.5-flash").strip()
     api_key = get_ai_api_key(provider)
     return {"provider": provider, "model": model, "api_key": api_key}
 
@@ -2678,7 +2678,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             aguinaldo = float(body.get("aguinaldo", 15.0))
             prima = float(body.get("prima", 25.0))
             ai_provider = body.get("ai_provider", "google").strip().lower()
-            ai_model = body.get("ai_model", "gemini-2.0-flash").strip()
+            ai_model = body.get("ai_model", "gemini-2.5-flash").strip()
             db_path = body.get("db_path", "")
             payroll_rules = body.get("payroll_rules", "")
 

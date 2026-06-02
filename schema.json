@@ -2,7 +2,7 @@
   "uma_cell": "S3",
   "period": "16 al 30 Abr 2026",
   "ai_provider": "google",
-  "ai_model": "gemini-2.0-flash",
+  "ai_model": "gemini-2.5-flash",
   "pending_clarifications": [],
   "columns": [
     {
