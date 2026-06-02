@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RHM - CRM y Prenómina Inteligente</title>
-  <link rel="stylesheet" href="styles.css?v=2.0">
+  <link rel="stylesheet" href="styles.css?v=2.1">
   <!-- Lucide Icons CDN for sleek vector icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -514,20 +514,8 @@
             </div>
           </div>
           
-          <!-- Card 3: Reglas de Nómina Textarea (Full Width) -->
-          <div class="config-card full-width">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.75rem; margin-bottom: 1rem;">
-              <h3 style="margin: 0; border: none; padding: 0;"><i data-lucide="file-text"></i> Reglas de Nómina Particulares</h3>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-load-rules-file" style="margin: 0; display: flex; align-items: center; gap: 5px;">
-                <i data-lucide="upload" style="width: 14px; height: 14px;"></i> Importar Documento...
-              </button>
-            </div>
-            <textarea id="cfg-payroll-rules" class="code-editor-textarea" rows="10" placeholder="Escribe o carga las reglas particulares de nómina para esta empresa aquí..."></textarea>
-            <small style="color: var(--text-muted); display: block; margin-top: 5px;">Soporta archivos de texto (.txt), markdown (.md) o Word (.docx). Si se deja vacío, se aplicarán las reglas estándar oficiales.</small>
-          </div>
-          
-          <!-- Card 4: Configuración AI (Full Width) -->
-          <div class="config-card full-width">
+          <!-- Card 4: Configuración AI -->
+          <div class="config-card">
             <h3><i data-lucide="brain"></i> Motor de Inteligencia Artificial (Gemini)</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1rem;">
               <div class="form-group">
@@ -575,6 +563,18 @@
                 </ul>
               </div>
             </div>
+          </div>
+          
+          <!-- Card 3: Reglas de Nómina Textarea (Full Width) -->
+          <div class="config-card full-width">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+              <h3 style="margin: 0; border: none; padding: 0;"><i data-lucide="file-text"></i> Reglas de Nómina Particulares</h3>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-load-rules-file" style="margin: 0; display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="upload" style="width: 14px; height: 14px;"></i> Importar Documento...
+              </button>
+            </div>
+            <textarea id="cfg-payroll-rules" class="code-editor-textarea" rows="10" placeholder="Escribe o carga las reglas particulares de nómina para esta empresa aquí..."></textarea>
+            <small style="color: var(--text-muted); display: block; margin-top: 5px;">Soporta archivos de texto (.txt), markdown (.md) o Word (.docx). Si se deja vacío, se aplicarán las reglas estándar oficiales.</small>
           </div>
           
         </div>
