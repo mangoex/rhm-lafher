@@ -1,3 +1,10 @@
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 // RHM CRM & Prenómina App Logic (Dynamic AI-Connected Edition)
 
 // Global Fetch Interceptor for Authentication
@@ -257,8 +264,8 @@ document.addEventListener("DOMContentLoaded", () => {
       otherCols.forEach(col => {
         container.innerHTML += `
           <div class="form-group">
-            <label for="col-${col.field}">${col.label}</label>
-            <input type="number" id="col-${col.field}" min="0" step="0.01" value="0.0">
+            <label for="col-"></label>
+            <input type="number" id="col-" min="0" step="0.01" value="0.0">
           </div>
         `;
       });
@@ -272,8 +279,8 @@ document.addEventListener("DOMContentLoaded", () => {
       deductions.forEach(col => {
         incContainer.innerHTML += `
           <div class="form-group">
-            <label for="inc-${col.field}">${col.label}</label>
-            <input type="number" id="inc-${col.field}" min="0" value="0" step="0.01" placeholder="Ej. Préstamo">
+            <label for="inc-"></label>
+            <input type="number" id="inc-" min="0" value="0" step="0.01" placeholder="Ej. Préstamo">
           </div>
         `;
       });
@@ -298,10 +305,10 @@ document.addEventListener("DOMContentLoaded", () => {
     questions.forEach(q => {
       list.innerHTML += `
         <div class="clarify-card" style="background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-top: 0.5rem;">
-          <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">${q.question}</h4>
+          <h4 style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;"></h4>
           <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
             ${q.options.map(opt => `
-              <button type="button" class="btn btn-secondary btn-sm clarify-opt-btn" data-field="${q.field}" data-answer="${opt}">${opt}</button>
+              <button type="button" class="btn btn-secondary btn-sm clarify-opt-btn" data-field="${q.field}" data-answer=""></button>
             `).join("")}
           </div>
         </div>
@@ -340,8 +347,22 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 5. Payroll Math Calculations (Front-end Preview Engine)
+  function getPeriodEndDate() {
+    if (!window.state || !window.state.period) return new Date();
+    const match = window.state.period.match(/\d+\s+al\s+(\d+)\s+([a-zA-Z]+)\s+(\d{4})/i);
+    if (match) {
+        const day = parseInt(match[1]);
+        const monthStr = match[2].toLowerCase().substring(0, 3);
+        const year = parseInt(match[3]);
+        const months = { "ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11 };
+        const month = months[monthStr] !== undefined ? months[monthStr] : 3;
+        return new Date(year, month, day);
+    }
+    return new Date();
+  }
+
   function getVacationDays(years) {
-    if (years <= 0) return 12;
+    if (years < 1) return 0;
     if (years === 1) return 12;
     if (years === 2) return 14;
     if (years === 3) return 16;
@@ -351,7 +372,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (years <= 15) return 24;
     if (years <= 20) return 26;
     if (years <= 25) return 28;
-    return 30;
+    if (years <= 30) return 30;
+    return 20 + 2 * Math.floor((years - 1) / 5);
   }
 
   function getFactorIntegracion(years, cfg) {
@@ -362,11 +384,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function calculateEmployeePayroll(emp, cfg) {
-    const activeDate = new Date("2026-04-30"); // Base target date
+    const activeDate = getPeriodEndDate();
     const ingresoDate = new Date(emp.ingreso);
-    const diffTime = Math.abs(activeDate - ingresoDate);
-    const yearsOfLabores = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-    const yearsCompleted = Math.max(1, Math.floor(yearsOfLabores));
+    let yearsCompleted = 0;
+    if (!isNaN(ingresoDate.getTime())) {
+      const diffTime = Math.max(0, activeDate - ingresoDate);
+      yearsCompleted = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
+    }
     
     const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
     
@@ -640,7 +664,7 @@ document.addEventListener("DOMContentLoaded", () => {
         incidencesList.innerHTML += `
           <div style="background: rgba(0,0,0,0.15); padding: 0.75rem 1rem; border-radius: 8px; border-left: 3px solid var(--danger); display:flex; justify-content:space-between; align-items:center;">
             <div>
-              <h4 style="font-size: 0.92rem; font-weight:600;">${emp.nombre}</h4>
+              <h4 style="font-size: 0.92rem; font-weight:600;"></h4>
               <p style="font-size: 0.8rem; color: var(--text-muted);">${items.join(", ")}</p>
             </div>
             <span class="badge danger">${emp.observaciones || 'Incidencia'}</span>
@@ -703,9 +727,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     filtered.forEach(emp => {
-      const activeDate = new Date("2026-04-30");
-      const diffTime = Math.abs(activeDate - new Date(emp.ingreso));
-      const years = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+      const activeDate = getPeriodEndDate();
+      let diffTime = 0;
+      let years = 0;
+      const ingresoDate = new Date(emp.ingreso);
+      if (!isNaN(ingresoDate.getTime())) {
+        diffTime = Math.max(0, activeDate - ingresoDate);
+        years = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+      }
       const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
       
       let schemes = [];
@@ -729,17 +758,17 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="coll-row-flex">
               <div class="collaborator-avatar">${initials}</div>
               <div>
-                <div style="font-weight: 600;">${emp.nombre}</div>
+                <div style="font-weight: 600;"></div>
                 <div style="font-size:0.75rem; color:var(--text-muted);">No. ${emp.no}</div>
               </div>
             </div>
           </td>
-          <td>${emp.empresa}</td>
+          <td></td>
           <td>
-            <div>${emp.area}</div>
+            <div></div>
             <div style="font-size:0.78rem; color:var(--text-dark);">${emp.depto}</div>
           </td>
-          <td>${emp.puesto}</td>
+          <td></td>
           <td>${emp.ingreso}</td>
           <td>${years.toFixed(1)} años</td>
           <td>
@@ -824,8 +853,8 @@ document.addEventListener("DOMContentLoaded", () => {
       listDiv.innerHTML += `
         <div class="list-item-coll ${activeClass}" data-id="${emp.id}">
           ${statusDot}
-          <h4>${emp.nombre}</h4>
-          <p>${emp.puesto} | Cód. ${emp.id}</p>
+          <h4></h4>
+          <p> | Cód. ${emp.id}</p>
         </div>
       `;
     });
@@ -852,7 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!emp) return;
 
     document.getElementById("inc-form-container").style.display = "block";
-    document.getElementById("inc-coll-name").textContent = `Incidencias: ${emp.nombre}`;
+    document.getElementById("inc-coll-name").textContent = `Incidencias: `;
     
     const dateInput = document.getElementById("inc-fecha");
     if (dateInput) {
@@ -926,7 +955,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const descText = details.join(", ") || "Observación / Justificación";
-      const obs = inc.observaciones ? ` <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top: 2px;">Obs: ${inc.observaciones}</span>` : "";
+      const obs = inc.observaciones ? ` <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top: 2px;">Obs: </span>` : "";
 
       rowsHtml += `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -1038,7 +1067,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-${col.field}`);
+            const el = document.getElementById(`inc-`);
             if (el) {
               el.value = inc[col.field] || 0.0;
             }
@@ -1078,7 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-${col.field}`);
+            const el = document.getElementById(`inc-`);
             if (el) {
               el.value = 0.0;
             }
@@ -1155,7 +1184,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "deduction" && col.incidence_editable) {
-            const el = document.getElementById(`inc-${col.field}`);
+            const el = document.getElementById(`inc-`);
             payload[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
           }
         });
@@ -1758,7 +1787,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-${col.field}`);
+            const el = document.getElementById(`col-`);
             if (el) {
               el.value = emp[col.field] || 0.0;
             }
@@ -1780,7 +1809,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-${col.field}`);
+            const el = document.getElementById(`col-`);
             if (el) el.value = 0.0;
           }
         });
@@ -1821,7 +1850,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (state.schema && state.schema.columns) {
         state.schema.columns.forEach(col => {
           if (col.category === "others" && col.editable) {
-            const el = document.getElementById(`col-${col.field}`);
+            const el = document.getElementById(`col-`);
             data[col.field] = el ? parseFloat(el.value) || 0.0 : 0.0;
           }
         });
@@ -1871,7 +1900,7 @@ document.addEventListener("DOMContentLoaded", () => {
           showToast(resData.error, "error");
           return;
         }
-        showToast(isCurrentlyBaja ? `${emp.nombre} ha reingresado en Excel.` : `${emp.nombre} ha sido dado de baja en Excel.`);
+        showToast(isCurrentlyBaja ? ` ha reingresado en Excel.` : ` ha sido dado de baja en Excel.`);
         loadState();
       })
       .catch(err => {
@@ -2094,11 +2123,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const isSelf = u.username === localStorage.getItem("rhm_username");
         
         tr.innerHTML = `
-          <td><strong>${u.username}</strong> ${isSelf ? '<span class="badge info" style="font-size: 0.7rem; padding: 2px 6px; margin-left: 5px;">Tú</span>' : ''}</td>
+          <td><strong></strong> ${isSelf ? '<span class="badge info" style="font-size: 0.7rem; padding: 2px 6px; margin-left: 5px;">Tú</span>' : ''}</td>
           <td><span class="user-badge ${u.role === 'admin' ? 'admin' : 'capturista'}">${u.role === 'admin' ? 'Administrador' : 'Capturista'}</span></td>
           <td style="text-align: center;">
             ${isSelf ? '-' : `
-              <button class="btn-delete-user-row delete-user-btn" data-username="${u.username}" title="Eliminar usuario">
+              <button class="btn-delete-user-row delete-user-btn" data-username="" title="Eliminar usuario">
                 <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
               </button>
             `}
@@ -2244,7 +2273,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .then(data => {
         if (data.error) {
           if (messagesDiv) {
-            messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: ${data.error}</p></div>`;
+            messagesDiv.innerHTML = `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: </p></div>`;
           }
           return;
         }
@@ -2361,7 +2390,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (data.error) {
           if (messagesDiv) {
-            messagesDiv.innerHTML += `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: ${data.error}</p></div>`;
+            messagesDiv.innerHTML += `<div class="chat-message assistant" style="color: var(--danger);"><p>Error: </p></div>`;
           }
           return;
         }

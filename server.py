@@ -34,6 +34,9 @@ import shutil
 import hashlib
 import secrets
 import time
+import threading
+
+EXCEL_LOCK = threading.Lock()
 
 USERS_FILE = os.path.join(CONFIG_DIR, "users.json")
 SECRETS_PATH = os.path.join(CONFIG_DIR, "secrets.json")
@@ -159,6 +162,20 @@ def parse_date_robust(val):
         except: pass
     return None
 
+def calculate_vacation_days(years):
+    if years < 1: return 0
+    if years == 1: return 12
+    if years == 2: return 14
+    if years == 3: return 16
+    if years == 4: return 18
+    if years == 5: return 20
+    if years <= 10: return 22
+    if years <= 15: return 24
+    if years <= 20: return 26
+    if years <= 25: return 28
+    if years <= 30: return 30
+    return 20 + 2 * ((years - 1) // 5)
+
 def parse_period_dates(period_str):
     import re
     import datetime
@@ -174,7 +191,13 @@ def parse_period_dates(period_str):
         end_date = datetime.date(year, month, d_end)
         return start_date, end_date
     else:
-        return datetime.date(2026, 4, 16), datetime.date(2026, 4, 30)
+        today = datetime.date.today()
+        if today.day <= 15:
+            return datetime.date(today.year, today.month, 1), datetime.date(today.year, today.month, 15)
+        else:
+            import calendar
+            _, last_day = calendar.monthrange(today.year, today.month)
+            return datetime.date(today.year, today.month, 16), datetime.date(today.year, today.month, last_day)
 
 def parse_multipart(body_bytes, boundary):
     parts = body_bytes.split(b'--' + boundary.encode('utf-8'))
@@ -364,30 +387,7 @@ def recompile_active_period_incidences(wb, schema):
             return d.replace(year=d.year + years, day=28)
             
     def get_vacation_allowance(y):
-        if y < 1:
-            return 0
-        elif y == 1:
-            return 12
-        elif y == 2:
-            return 14
-        elif y == 3:
-            return 16
-        elif y == 4:
-            return 18
-        elif y == 5:
-            return 20
-        elif y <= 10:
-            return 22
-        elif y <= 15:
-            return 24
-        elif y <= 20:
-            return 26
-        elif y <= 25:
-            return 28
-        elif y <= 30:
-            return 30
-        else:
-            return 20 + 2 * ((y - 1) // 5)
+        return calculate_vacation_days(y)
             
     # First, make sure Incidencias is migrated if needed
     heal_incidences_sheet_if_needed(wb, schema)
@@ -856,11 +856,12 @@ def load_workbook_agnostic(path, data_only=False):
         return openpyxl.load_workbook(path, data_only=data_only)
 
 def save_workbook_agnostic(wb, path):
+    tmp_path = path + ".tmp"
     if path.lower().endswith(".csv"):
         import csv
         ws = wb.active
         try:
-            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            with open(tmp_path, "w", encoding="utf-8-sig", newline="") as f:
                 writer = csv.writer(f)
                 max_r = ws.max_row
                 max_c = ws.max_column
@@ -878,9 +879,22 @@ def save_workbook_agnostic(wb, path):
                     writer.writerow(row_vals)
         except Exception as e:
             print(f"Error saving CSV: {e}")
+            if os.path.exists(tmp_path): os.remove(tmp_path)
             raise e
     else:
-        wb.save(path)
+        try:
+            wb.save(tmp_path)
+        except Exception as e:
+            print(f"Error saving Excel: {e}")
+            if os.path.exists(tmp_path): os.remove(tmp_path)
+            raise e
+            
+    # Atomic rename (replace existing file)
+    try:
+        os.replace(tmp_path, path)
+    except OSError as e:
+        print(f"Error replacing file: {e}")
+        raise Exception("No se pudo guardar. ¿Tienes el archivo abierto en Excel?")
 
 def select_file_via_dialog():
     # 1. Try AppleScript on macOS first (thread-safe, out-of-process)
@@ -1597,28 +1611,29 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
                 
         # Endpoint routes
-        if path_only == "/api/employees":
-            self.get_employees()
-        elif path_only == "/api/schema":
-            self.get_schema()
-        elif path_only == "/api/select-file":
-            self.select_file()
-        elif path_only == "/api/select-rules-file":
-            self.select_rules_file()
-        elif path_only == "/api/download-excel":
-            self.download_excel()
-        elif path_only == "/api/users":
-            self.get_users()
-        elif path_only == "/api/ai-status":
-            self.get_ai_status()
-        elif path_only == "/api/incidences":
-            import urllib.parse
-            parsed = urllib.parse.urlparse(self.path)
-            params = urllib.parse.parse_qs(parsed.query)
-            employee_id = params.get("id", [None])[0]
-            self.get_incidences_endpoint(employee_id)
-        else:
-            self.send_json({"error": "Endpoint not found"}, 404)
+        with EXCEL_LOCK:
+            if path_only == "/api/employees":
+                self.get_employees()
+            elif path_only == "/api/schema":
+                self.get_schema()
+            elif path_only == "/api/select-file":
+                self.select_file()
+            elif path_only == "/api/select-rules-file":
+                self.select_rules_file()
+            elif path_only == "/api/download-excel":
+                self.download_excel()
+            elif path_only == "/api/users":
+                self.get_users()
+            elif path_only == "/api/ai-status":
+                self.get_ai_status()
+            elif path_only == "/api/incidences":
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed.query)
+                employee_id = params.get("id", [None])[0]
+                self.get_incidences_endpoint(employee_id)
+            else:
+                self.send_json({"error": "Endpoint not found"}, 404)
 
     def do_POST(self):
         path_only = self.path.split("?")[0]
@@ -1658,24 +1673,25 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": f"Invalid JSON: {e}"}, 400)
             return
 
-        if path_only == "/api/collaborator":
-            self.save_collaborator(body)
-        elif path_only == "/api/incidences":
-            self.save_incidences(body)
-        elif path_only == "/api/period":
-            self.save_period(body)
-        elif path_only == "/api/config":
-            self.save_config(body)
-        elif path_only == "/api/schema/clarify":
-            self.save_clarify(body)
-        elif path_only == "/api/payroll/explain":
-            self.explain_payroll(body)
-        elif path_only == "/api/users":
-            self.save_user_endpoint(body)
-        elif path_only == "/api/logout":
-            self.logout_endpoint()
-        else:
-            self.send_json({"error": "Endpoint not found"}, 404)
+        with EXCEL_LOCK:
+            if path_only == "/api/collaborator":
+                self.save_collaborator(body)
+            elif path_only == "/api/incidences":
+                self.save_incidences(body)
+            elif path_only == "/api/period":
+                self.save_period(body)
+            elif path_only == "/api/config":
+                self.save_config(body)
+            elif path_only == "/api/schema/clarify":
+                self.save_clarify(body)
+            elif path_only == "/api/payroll/explain":
+                self.explain_payroll(body)
+            elif path_only == "/api/users":
+                self.save_user_endpoint(body)
+            elif path_only == "/api/logout":
+                self.logout_endpoint()
+            else:
+                self.send_json({"error": "Endpoint not found"}, 404)
 
     def do_DELETE(self):
         path_only = self.path.split("?")[0]
@@ -1684,30 +1700,31 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "No autorizado. Inicie sesiÃ³n."}, 401)
             return
 
-        if path_only == "/api/users":
-            if session["role"] != "admin":
-                self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
-                return
-            import urllib.parse
-            parsed = urllib.parse.urlparse(self.path)
-            params = urllib.parse.parse_qs(parsed.query)
-            username = params.get("username", [None])[0]
-            if not username:
-                self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
-                return
-            self.delete_user_endpoint(username)
-        elif path_only == "/api/incidences":
-            import urllib.parse
-            parsed = urllib.parse.urlparse(self.path)
-            params = urllib.parse.parse_qs(parsed.query)
-            employee_id = params.get("employee_id", [None])[0]
-            date_val = params.get("date", [None])[0]
-            if not employee_id or not date_val:
-                self.send_json({"error": "Falta employee_id o date para eliminar la incidencia"}, 400)
-                return
-            self.delete_incidence_endpoint(employee_id, date_val)
-        else:
-            self.send_json({"error": "Endpoint not found"}, 404)
+        with EXCEL_LOCK:
+            if path_only == "/api/users":
+                if session["role"] != "admin":
+                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                    return
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed.query)
+                username = params.get("username", [None])[0]
+                if not username:
+                    self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
+                    return
+                self.delete_user_endpoint(username)
+            elif path_only == "/api/incidences":
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed.query)
+                employee_id = params.get("employee_id", [None])[0]
+                date_val = params.get("date", [None])[0]
+                if not employee_id or not date_val:
+                    self.send_json({"error": "Falta employee_id o date para eliminar la incidencia"}, 400)
+                    return
+                self.delete_incidence_endpoint(employee_id, date_val)
+            else:
+                self.send_json({"error": "Endpoint not found"}, 404)
 
     def get_session_user(self):
         token = None
@@ -2561,22 +2578,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 if ingreso_str and not baja_str:
                     try:
                         ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
-                        active_dt = datetime(2026, 4, 30)
+                        _, active_date_obj = parse_period_dates(schema.get("period", ""))
+                        active_dt = datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
                         diff_yrs = (active_dt - ingreso_dt).days / 365.25
                         years = max(1, int(diff_yrs))
-                        
-                        def get_vac_days(y):
-                            if y <= 1: return 12
-                            if y == 2: return 14
-                            if y == 3: return 16
-                            if y == 4: return 18
-                            if y == 5: return 20
-                            if y <= 10: return 22
-                            if y <= 15: return 24
-                            if y <= 20: return 26
-                            return 28
                             
-                        vac = get_vac_days(years)
+                        vac = calculate_vacation_days(years)
                         fi = 1 + (15/365) + ((vac * 0.25) / 365)
                         ws.cell(row=target_row, column=fi_col).value = round(fi, 4)
                     except Exception as ex:
@@ -2999,18 +3006,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             if ingreso_str:
                 try:
                     ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
-                    active_dt = datetime(2026, 4, 30)
+                    _, active_date_obj = parse_period_dates(schema.get("period", ""))
+                    active_dt = datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
                     years_of_labores = (active_dt - ingreso_dt).days / 365.25
                     y = max(1, int(years_of_labores))
-                    if y <= 1: vac = 12
-                    elif y == 2: vac = 14
-                    elif y == 3: vac = 16
-                    elif y == 4: vac = 18
-                    elif y == 5: vac = 20
-                    elif y <= 10: vac = 22
-                    elif y <= 15: vac = 24
-                    elif y <= 20: vac = 26
-                    else: vac = 28
+                    vac = calculate_vacation_days(y)
                 except:
                     pass
 
