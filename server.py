@@ -3351,13 +3351,13 @@ Instrucciones Generales:
 Formatos del bloque JSON (debe ser un bloque de código Markdown con ```json ... ```):
 
 A) Para filtrar la tabla (por ejemplo, al preguntar "quiénes no tienen fondo de ahorro"):
-{
+{{
   "filter_employee_ids": ["190", "171", "108"]
-}
+}}
 
 B) Para aplicar cambios a un único empleado específico (por ejemplo, "descuéntale 500 a Juan" o "el empleado 190 tuvo 2 faltas"):
-{
-  "apply_changes": {
+{{
+  "apply_changes": {{
     "id": "190",                       // Cód. del empleado (Obligatorio en consultas globales/búsquedas por nombre)
     "date": "2026-06-02",             // (opcional) fecha en formato YYYY-MM-DD
     "faltas": 2,                      // (opcional) número total de faltas en la quincena
@@ -3372,22 +3372,22 @@ B) Para aplicar cambios a un único empleado específico (por ejemplo, "descuén
     "forzar_vales": "SI",             // (opcional) "SI"/"NO"
     "ajuste_vales": 1200.0,           // (opcional) monto fijo para sobreescribir vales de despensa
     "ajuste_fondo_ahorro": 800.0      // (opcional) monto fijo para sobreescribir fondo de ahorro
-  }
-}
+  }}
+}}
 
 C) Para aplicar cambios a múltiples empleados a la vez (por ejemplo, "Empleado 190 tiene 2 faltas y Empleado 171 tiene 1"):
-{
+{{
   "apply_changes": [
-    {
+    {{
       "id": "190",
       "faltas": 2
-    },
-    {
+    }},
+    {{
       "id": "171",
       "faltas": 1
-    }
+    }}
   ]
-}
+}}
 
 Nota: El descuento por faltas se calculará automáticamente con base en las faltas registradas. El descuento adicional es acumulativo para otros conceptos puntuales.
 """
