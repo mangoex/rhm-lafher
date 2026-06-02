@@ -3343,28 +3343,51 @@ Instrucciones Especiales de Lógica Contable:
 - Incidencias de Fechas Pasadas (Generales): Cualquier incidencia (vacaciones, faltas, retardos) cuya fecha (`"date"`) esté fuera del período activo de la nómina actual se registra puramente como historial en la pestaña de incidencias y para actualizar saldos de vacaciones. NUNCA debes aplicar descuentos de sueldo, deducciones económicas ni reducciones de días laborados de la quincena actual por incidencias de periodos pasados. En tu explicación, confirma que se registra históricamente en el sistema sin alterar la nómina actual.
 
 Instrucciones Generales:
-1. Explica el desglose del cálculo del colaborador de forma sumamente concisa, clara, directa y profesional usando Markdown. Evita enumerar conceptos con valor de $0.00.
-2. Si el usuario te da instrucciones de registrar incidencias, modificar datos o aplicar ajustes (por ejemplo, "Tiene 2 faltas", "Ponle un descuento adicional", "Lleva un retardo", "Registra 3 días de vacaciones", etc.), limita tu respuesta a una confirmación muy breve y directa (máximo 1 o 2 párrafos cortos), y coloca de inmediato al final de tu respuesta el bloque de código JSON con los cambios.
-3. Si el usuario solo está conversando o haciendo preguntas sin solicitar un cambio/registro de incidencias, responde de forma concisa y conversacional normal y NO incluyas el bloque JSON.
+1. Explica el desglose o responde la duda de forma sumamente concisa, clara, directa y profesional usando Markdown.
+2. Si el usuario te da instrucciones de registrar incidencias, modificar datos o aplicar ajustes (ej. "Tiene 2 faltas", "Descuéntale tanto a un empleado", "Un empleado tuvo dos faltas", etc.), limita tu respuesta a una confirmación muy breve y directa, y coloca de inmediato al final de tu respuesta el bloque de código JSON con los cambios en `"apply_changes"`.
+3. Si el usuario te pide filtrar o buscar empleados con ciertas características (ej. "Dime quiénes no tienen fondo de ahorro y darmelos y filtrar la tabla", "Muéstrame a los de BYRMAX", "Quiénes tienen faltas?", etc.), responde enumerando a dichos empleados y coloca al final de tu respuesta el bloque de código JSON con la lista de IDs bajo `"filter_employee_ids"`.
+4. Si el usuario solo está conversando o haciendo preguntas sin solicitar un cambio o filtro, responde de forma concisa y NO incluyas el bloque JSON.
 
-Formato del bloque JSON para cambios (debe ser un bloque de código Markdown con ```json ... ```):
-{{
-  "apply_changes": {{
-    "date": "2026-01-15",             // (opcional) fecha en formato YYYY-MM-DD para registrar incidencias en fechas pasadas
+Formatos del bloque JSON (debe ser un bloque de código Markdown con ```json ... ```):
+
+A) Para filtrar la tabla (por ejemplo, al preguntar "quiénes no tienen fondo de ahorro"):
+{
+  "filter_employee_ids": ["190", "171", "108"]
+}
+
+B) Para aplicar cambios a un único empleado específico (por ejemplo, "descuéntale 500 a Juan" o "el empleado 190 tuvo 2 faltas"):
+{
+  "apply_changes": {
+    "id": "190",                       // Cód. del empleado (Obligatorio en consultas globales/búsquedas por nombre)
+    "date": "2026-06-02",             // (opcional) fecha en formato YYYY-MM-DD
     "faltas": 2,                      // (opcional) número total de faltas en la quincena
     "retardos": 1,                    // (opcional) número total de retardos
     "vacaciones": 3,                  // (opcional) número total de vacaciones tomadas
     "descuento_adicional": 500.0,     // (opcional) monto del descuento adicional en pesos{dynamic_ded_fields_str}
     "observaciones": "Texto...",       // (opcional) observaciones sobre la incidencia o cambio
-    "puntualidad": false,             // (opcional) true/false o "SI"/"NO" para habilitar/deshabilitar el bono de puntualidad
-    "asistencia": false,              // (opcional) true/false o "SI"/"NO" para habilitar/deshabilitar el bono de asistencia
-    "forzar_asistencia": "SI",        // (opcional) "SI"/"NO" para forzar pago completo de asistencia ignorando faltas
-    "forzar_puntualidad": "SI",       // (opcional) "SI"/"NO" para forzar pago completo de puntualidad ignorando retardos
-    "forzar_vales": "SI",             // (opcional) "SI"/"NO" para forzar pago completo de vales ignorando faltas
+    "puntualidad": false,             // (opcional) true/false o "SI"/"NO" para el bono de puntualidad
+    "asistencia": false,              // (opcional) true/false o "SI"/"NO" para el bono de asistencia
+    "forzar_asistencia": "SI",        // (opcional) "SI"/"NO"
+    "forzar_puntualidad": "SI",       // (opcional) "SI"/"NO"
+    "forzar_vales": "SI",             // (opcional) "SI"/"NO"
     "ajuste_vales": 1200.0,           // (opcional) monto fijo para sobreescribir vales de despensa
     "ajuste_fondo_ahorro": 800.0      // (opcional) monto fijo para sobreescribir fondo de ahorro
-  }}
-}}
+  }
+}
+
+C) Para aplicar cambios a múltiples empleados a la vez (por ejemplo, "Empleado 190 tiene 2 faltas y Empleado 171 tiene 1"):
+{
+  "apply_changes": [
+    {
+      "id": "190",
+      "faltas": 2
+    },
+    {
+      "id": "171",
+      "faltas": 1
+    }
+  ]
+}
 
 Nota: El descuento por faltas se calculará automáticamente con base en las faltas registradas. El descuento adicional es acumulativo para otros conceptos puntuales.
 """
@@ -3372,10 +3395,11 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
             # Build conversation contents
             contents = []
             for msg in chat_history:
-                role = "user" if msg.get("role") == "user" else "model"
+                role = "user" if msg.get("role") in ["user", "role"] else "model"
+                text_content = msg.get("content") or msg.get("text") or ""
                 contents.append({
                     "role": role,
-                    "parts": [{"text": msg.get("content", "")}]
+                    "parts": [{"text": text_content}]
                 })
             
             # Add user query
@@ -3385,7 +3409,22 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     # Global query
                     emp_list_desc = ""
                     for r_num, emp_d in all_employees_data:
-                        emp_list_desc += f"- {emp_d.get('nombre')} (Cód: {emp_d.get('id') or emp_d.get('employee_id') or ''}), Empresa: {emp_d.get('empresa')}, Reg: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('regimen', 'Régimen General de Ley Personas Morales')}, Prima: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('prima_riesgo', 0.5432)}%\n"
+                        fa_status = "SI" if emp_d.get("fondo_ahorro_activo") else "NO"
+                        emp_list_desc += (
+                            f"- {emp_d.get('nombre')} (Cód: {emp_d.get('id') or ''}): "
+                            f"Empresa: {emp_d.get('empresa')}, "
+                            f"Régimen: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('regimen', 'Régimen General de Ley Personas Morales')}, "
+                            f"Prima de Riesgo: {companies_map.get(emp_d.get('empresa', '').strip().upper(), {}).get('prima_riesgo', 0.5432)}%, "
+                            f"Salario Diario: ${emp_d.get('salario_diario', 0.0):,.2f}, "
+                            f"Faltas: {emp_d.get('faltas', 0)}, "
+                            f"Retardos: {emp_d.get('retardos', 0)}, "
+                            f"Cuenta con Fondo de Ahorro: {fa_status}, "
+                            f"Sueldo Neto Quincenal: ${emp_d.get('neto_quincenal', 0.0):,.2f}, "
+                            f"Descuento Adicional: ${emp_d.get('descuento_adicional', 0.0):,.2f}, "
+                            f"Vacaciones Restantes: {emp_d.get('vacaciones_restantes', 0.0):.1f}, "
+                            f"Antigüedad: {emp_d.get('antiguedad', 0.0):.2f} años, "
+                            f"Observaciones: {emp_d.get('observaciones', '')}\n"
+                        )
                     
                     contents.append({
                         "role": "user",
@@ -3420,7 +3459,6 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     if m:
                         json_str = m.group(1).strip()
                     else:
-                        # Try to find { "apply_changes": ... } or { "filter_employee_ids": ... } inside the text directly
                         m_direct = re.search(r"(\{.*?(?:\"apply_changes\"|\"filter_employee_ids\").*?\})", text, re.DOTALL)
                         if m_direct:
                             json_str = m_direct.group(1).strip()
@@ -3436,57 +3474,39 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                         
                         if "apply_changes" in changes_data:
                             changes = changes_data["apply_changes"]
+                            changes_list_to_process = changes if isinstance(changes, list) else [changes]
+                            proposed_changes = []
                             
-                            # If changes is a list of proposed changes
-                            if isinstance(changes, list):
-                                proposed_changes = []
-                                import datetime
-                                tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
-                                today_mex = datetime.datetime.now(tz_mex).date()
-                                default_date_str = today_mex.strftime("%Y-%m-%d")
+                            wb = load_workbook_agnostic(excel_path, data_only=False)
+                            ws = wb.active
+                            
+                            nombre_col = get_field_index(schema, "nombre")
+                            id_col = get_field_index(schema, "id")
+                            headers_row = find_headers_row(ws)
+                            
+                            import datetime
+                            tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
+                            today_mex = datetime.datetime.now(tz_mex).date()
+                            period_str = schema.get("period", "16 al 30 Abr 2026")
+                            start_date, end_date = parse_period_dates(period_str)
+                            
+                            ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
+                            if ws_inc:
+                                heal_incidences_sheet_if_needed(wb, schema)
                                 
-                                for change_item in changes:
-                                    change_cod = change_item.get("id") or change_item.get("employee_id") or cod
-                                    c_name = ""
-                                    for r_num, emp_d in all_employees_data:
-                                        if str(emp_d.get("id")).strip() == str(change_cod).strip():
-                                            c_name = emp_d.get("nombre", "")
-                                            break
-                                    
-                                    item_proposed = {
-                                        "date": change_item.get("date") or change_item.get("fecha") or default_date_str,
-                                        "id": change_cod,
-                                        "nombre": c_name,
-                                        "faltas": int(change_item.get("faltas", 0)) if change_item.get("faltas") is not None else 0,
-                                        "retardos": int(change_item.get("retardos", 0)) if change_item.get("retardos") is not None else 0,
-                                        "vacaciones": int(change_item.get("vacaciones", 0)) if change_item.get("vacaciones") is not None else 0,
-                                        "descuento_adicional": float(change_item.get("descuento_adicional", 0.0)) if change_item.get("descuento_adicional") is not None else 0.0,
-                                        "puntualidad": "SI" if change_item.get("puntualidad", True) in [True, "SI"] else "NO",
-                                        "asistencia": "SI" if change_item.get("asistencia", True) in [True, "SI"] else "NO",
-                                        "observaciones": change_item.get("observaciones") or ""
-                                    }
-                                    for col in schema.get("columns", []):
-                                        if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                                            f_name = col.get("field")
-                                            if f_name in change_item:
-                                                item_proposed[f_name] = float(change_item[f_name])
-                                    proposed_changes.append(item_proposed)
-                                applied_changes = False
-                            else:
-                                # It's a single dictionary
-                                wb = load_workbook_agnostic(excel_path, data_only=False)
-                                ws = wb.active
+                            for change_item in changes_list_to_process:
+                                # Resolve target employee code
+                                target_cod = change_item.get("id") or change_item.get("employee_id") or (None if is_global else cod)
+                                if not target_cod:
+                                    continue
                                 
                                 # Find employee row
-                                nombre_col = get_field_index(schema, "nombre")
-                                id_col = get_field_index(schema, "id")
-                                headers_row = find_headers_row(ws)
                                 row = headers_row + 1
                                 found_row = None
-                                is_temp_id = isinstance(cod, str) and cod.startswith("TEMP_")
+                                is_temp_id = isinstance(target_cod, str) and target_cod.startswith("TEMP_")
                                 temp_row_resolved = None
                                 if is_temp_id:
-                                    try: temp_row_resolved = int(cod.split("_")[1])
+                                    try: temp_row_resolved = int(target_cod.split("_")[1])
                                     except ValueError: pass
 
                                 while True:
@@ -3499,7 +3519,7 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                                     if temp_row_resolved == row:
                                         found_row = row
                                         break
-                                    elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(cod).strip():
+                                    elif not is_temp_id and cod_val is not None and str(cod_val).strip() == str(target_cod).strip():
                                         found_row = row
                                         break
                                     row += 1
@@ -3507,23 +3527,20 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                                 if found_row:
                                     nombre_val = ws.cell(row=found_row, column=nombre_col).value
                                     
-                                    import datetime
-                                    tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
-                                    today_mex = datetime.datetime.now(tz_mex).date()
-                                    today_str = today_mex.strftime("%Y-%m-%d")
-                                    period_str = schema.get("period", "16 al 30 Abr 2026")
-                                    start_date, end_date = parse_period_dates(period_str)
-                                    
-                                    custom_date_str = changes.get("date") or changes.get("fecha")
+                                    # Resolve date for this change
+                                    custom_date_str = change_item.get("date") or change_item.get("fecha")
+                                    target_date_str = None
                                     if custom_date_str:
                                         custom_date = parse_date_robust(custom_date_str)
                                         if custom_date:
-                                            today_str = custom_date.strftime("%Y-%m-%d")
-                                    else:
-                                        if not (start_date <= today_mex <= end_date):
-                                            today_str = start_date.strftime("%Y-%m-%d")
+                                            target_date_str = custom_date.strftime("%Y-%m-%d")
+                                    
+                                    if not target_date_str:
+                                        if start_date <= today_mex <= end_date:
+                                            target_date_str = today_mex.strftime("%Y-%m-%d")
+                                        else:
+                                            target_date_str = start_date.strftime("%Y-%m-%d")
 
-                                    ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
                                     existing_inc = {
                                         "faltas": 0,
                                         "retardos": 0,
@@ -3543,12 +3560,11 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                                             existing_inc[col.get("field")] = 0.0
 
                                     if ws_inc:
-                                        heal_incidences_sheet_if_needed(wb, schema)
                                         max_c = ws_inc.max_column
                                         for r in range(2, ws_inc.max_row + 1):
                                             r_date = ws_inc.cell(row=r, column=1).value
                                             r_cod = ws_inc.cell(row=r, column=2).value
-                                            if r_date and r_cod and str(r_date)[:10] == today_str and str(r_cod).strip() == str(cod).strip():
+                                            if r_date and r_cod and str(r_date)[:10] == target_date_str and clean_employee_id(r_cod) == clean_employee_id(target_cod):
                                                 existing_inc["faltas"] = int(ws_inc.cell(row=r, column=4).value or 0)
                                                 existing_inc["retardos"] = int(ws_inc.cell(row=r, column=5).value or 0)
                                                 existing_inc["vacaciones"] = int(ws_inc.cell(row=r, column=6).value or 0)
@@ -3569,76 +3585,57 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                                                         col_idx += 1
                                                 break
                                     
-                                    ai_faltas = changes.get("faltas")
-                                    if ai_faltas is not None:
-                                        existing_inc["faltas"] = int(ai_faltas)
-                                    
-                                    ai_retardos = changes.get("retardos")
-                                    if ai_retardos is not None:
-                                        existing_inc["retardos"] = int(ai_retardos)
+                                    # Apply AI changes over existing_inc
+                                    if "faltas" in change_item:
+                                        existing_inc["faltas"] = int(change_item["faltas"])
+                                    if "retardos" in change_item:
+                                        existing_inc["retardos"] = int(change_item["retardos"])
+                                    if "vacaciones" in change_item:
+                                        existing_inc["vacaciones"] = int(change_item["vacaciones"])
+                                    if "descuento_adicional" in change_item:
+                                        existing_inc["descuento_adicional"] = float(change_item["descuento_adicional"])
+                                    if "observaciones" in change_item:
+                                        existing_inc["observaciones"] = str(change_item["observaciones"])
                                         
-                                    ai_vacaciones = changes.get("vacaciones")
-                                    if ai_vacaciones is not None:
-                                        existing_inc["vacaciones"] = int(ai_vacaciones)
-                                    
-                                    ai_desc = changes.get("descuento_adicional")
-                                    if ai_desc is not None:
-                                        existing_inc["descuento_adicional"] = float(ai_desc)
-                                        
-                                    ai_obs = changes.get("observaciones")
-                                    if ai_obs is not None:
-                                        existing_inc["observaciones"] = str(ai_obs)
-                                        
-                                    ai_punt = changes.get("puntualidad")
-                                    if ai_punt is not None:
+                                    if "puntualidad" in change_item:
+                                        ai_punt = change_item["puntualidad"]
                                         existing_inc["puntualidad"] = "SI" if (ai_punt is True or str(ai_punt).upper() == "SI") else "NO"
-                                        
-                                    ai_asist = changes.get("asistencia")
-                                    if ai_asist is not None:
+                                    if "asistencia" in change_item:
+                                        ai_asist = change_item["asistencia"]
                                         existing_inc["asistencia"] = "SI" if (ai_asist is True or str(ai_asist).upper() == "SI") else "NO"
                                         
-                                    ai_forzar_asist = changes.get("forzar_asistencia")
-                                    if ai_forzar_asist is not None:
+                                    if "forzar_asistencia" in change_item:
+                                        ai_forzar_asist = change_item["forzar_asistencia"]
                                         existing_inc["forzar_asistencia"] = "SI" if (ai_forzar_asist is True or str(ai_forzar_asist).upper() == "SI") else "NO"
-                                        
-                                    ai_forzar_punt = changes.get("forzar_puntualidad")
-                                    if ai_forzar_punt is not None:
+                                    if "forzar_puntualidad" in change_item:
+                                        ai_forzar_punt = change_item["forzar_puntualidad"]
                                         existing_inc["forzar_puntualidad"] = "SI" if (ai_forzar_punt is True or str(ai_forzar_punt).upper() == "SI") else "NO"
-                                        
-                                    ai_forzar_val = changes.get("forzar_vales")
-                                    if ai_forzar_val is not None:
+                                    if "forzar_vales" in change_item:
+                                        ai_forzar_val = change_item["forzar_vales"]
                                         existing_inc["forzar_vales"] = "SI" if (ai_forzar_val is True or str(ai_forzar_val).upper() == "SI") else "NO"
                                         
-                                    ai_ajuste_vales = changes.get("ajuste_vales")
-                                    if ai_ajuste_vales is not None:
-                                        try:
-                                            existing_inc["ajuste_vales"] = float(ai_ajuste_vales) if ai_ajuste_vales not in ["", None] else None
-                                        except ValueError:
-                                            pass
-                                            
-                                    ai_ajuste_fa = changes.get("ajuste_fondo_ahorro")
-                                    if ai_ajuste_fa is not None:
-                                        try:
-                                            existing_inc["ajuste_fondo_ahorro"] = float(ai_ajuste_fa) if ai_ajuste_fa not in ["", None] else None
-                                        except ValueError:
-                                            pass
+                                    if "ajuste_vales" in change_item:
+                                        ai_aj = change_item["ajuste_vales"]
+                                        existing_inc["ajuste_vales"] = float(ai_aj) if ai_aj not in ["", None] else None
+                                    if "ajuste_fondo_ahorro" in change_item:
+                                        ai_fa = change_item["ajuste_fondo_ahorro"]
+                                        existing_inc["ajuste_fondo_ahorro"] = float(ai_fa) if ai_fa not in ["", None] else None
                                         
                                     for col in schema.get("columns", []):
                                         if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
                                             f_name = col.get("field")
-                                            ai_val = changes.get(f_name)
-                                            if ai_val is not None:
-                                                existing_inc[f_name] = float(ai_val)
+                                            if f_name in change_item:
+                                                existing_inc[f_name] = float(change_item[f_name])
 
-                                    incidence_data = {
-                                        "date": today_str,
-                                        "id": cod,
+                                    proposed_changes.append({
+                                        "date": target_date_str,
+                                        "id": target_cod,
                                         "nombre": nombre_val or "",
                                         **existing_inc
-                                    }
-                                    proposed_changes = [incidence_data]
-                                    applied_changes = False
-                                wb.close()
+                                    })
+                            
+                            wb.close()
+                            applied_changes = False
                 except PermissionError as pe:
                     try: wb.close()
                     except: pass
