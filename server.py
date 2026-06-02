@@ -813,9 +813,9 @@ def copy_template_if_needed(db_path):
     
     # If it is an XLSX file, copy bundled excel template
     if db_path.lower().endswith(".xlsx"):
-        bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
+        bundled_excel = os.path.join(STATIC_DIR, "Nomina_Plantilla.xlsx")
         if not os.path.exists(bundled_excel):
-            bundled_excel = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
+            bundled_excel = os.path.join(BASE_DIR, "Nomina_Plantilla.xlsx")
             
         if os.path.exists(bundled_excel):
             print(f"Excel database file missing. Copying template to: {db_path}")
@@ -826,9 +826,9 @@ def copy_template_if_needed(db_path):
                 print("Error copying template Excel:", e)
     elif db_path.lower().endswith(".csv"):
         # If it is CSV, load bundled excel and save it as CSV
-        bundled_excel = os.path.join(STATIC_DIR, "Nomina ciega.xlsx")
+        bundled_excel = os.path.join(STATIC_DIR, "Nomina_Plantilla.xlsx")
         if not os.path.exists(bundled_excel):
-            bundled_excel = os.path.join(BASE_DIR, "Nomina ciega.xlsx")
+            bundled_excel = os.path.join(BASE_DIR, "Nomina_Plantilla.xlsx")
             
         if os.path.exists(bundled_excel):
             print(f"CSV Database file missing. Converting template to CSV: {db_path}")
@@ -2101,7 +2101,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 return
                 
             safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
-            dest_path = os.path.join(BASE_DIR, safe_filename)
+            dest_path = os.path.join(CONFIG_DIR, safe_filename)
             
             with open(dest_path, "wb") as f:
                 f.write(content)

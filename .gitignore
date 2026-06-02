@@ -5,6 +5,7 @@
 # Ignorar base de datos de nómina en Excel (Datos sensibles)
 *.xlsx
 *.xls
+!Nomina_Plantilla.xlsx
 
 # Ignorar archivos de registro y respaldos
 *.log
