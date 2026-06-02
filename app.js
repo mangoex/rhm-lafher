@@ -215,7 +215,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return fetch("/api/employees?_t=" + Date.now());
       })
       .then(res => {
-        if (!res.ok) throw new Error("Error de respuesta del servidor");
+        if (!res.ok) {
+          return res.json().then(errData => {
+            console.error("Detalles del error del servidor:", errData);
+            throw new Error(errData.error || "Error de respuesta del servidor");
+          }).catch(e => {
+            throw new Error("Error de respuesta del servidor");
+          });
+        }
         return res.json();
       })
       .then(data => {

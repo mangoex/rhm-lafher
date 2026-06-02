@@ -2407,6 +2407,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             nombre_col = get_field_index(schema, "nombre")
             id_col = get_field_index(schema, "id")
+            
+            if nombre_col is None or id_col is None:
+                raise ValueError("No se encontraron las columnas críticas 'nombre' (Nombre Completo) o 'id' (Código Checador) en el archivo Excel o en el esquema de mapeo. Verifica las cabeceras de tu archivo.")
 
             employees = []
             headers_row = find_headers_row(sheet_v)
