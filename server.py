@@ -3457,7 +3457,7 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
 if __name__ == "__main__":
     # Ensure users database is initialized/seeded
     load_users()
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), APIHandler) as httpd:
-        print(f"Serving RHM CRM & PrenÃ³mina on port {PORT}...")
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("0.0.0.0", PORT), APIHandler) as httpd:
+        print(f"Serving RHM CRM & Prenómina on port {PORT}...")
         httpd.serve_forever()
