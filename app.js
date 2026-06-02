@@ -487,7 +487,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sueldoNetoQuincenal = Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 / 15 * (15 - faltas));
     
     return {
-      antiguedad: yearsOfLabores,
+      antiguedad: yearsCompleted,
       factorIntegracion: fi,
       sdi,
       sueldoNominal,
