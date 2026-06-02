@@ -1654,6 +1654,7 @@ document.addEventListener("DOMContentLoaded", () => {
               const ai_model = modelSelectVal === "custom" 
                 ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.5-flash")
                 : modelSelectVal;
+              const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
 
               showToast("Guardando ruta de archivo y cargando datos...", "info");
 
