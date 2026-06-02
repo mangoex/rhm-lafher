@@ -70,7 +70,7 @@ def run_tests():
     assert "Vacaciones Totales" in str(h_tot), "Column 38 header mismatch!"
     assert "Vacaciones Tomadas" in str(h_tom), "Column 39 header mismatch!"
     assert "Vacaciones Restantes" in str(h_res), "Column 40 header mismatch!"
-    print("✓ Test 1 Passed: Vacation columns verified in Excel headers!")
+    print("[OK] Test 1 Passed: Vacation columns verified in Excel headers!")
     
     # 3. Create sample incidences for test_db
     # We will log:
@@ -110,7 +110,7 @@ def run_tests():
     
     wb.save(test_db)
     wb.close()
-    print("✓ Test 2 Passed: Mock Incidencias sheet saved!")
+    print("[OK] Test 2 Passed: Mock Incidencias sheet saved!")
 
     # 4. Test recompile_active_period_incidences
     print("\n[Test 3] Running recompile_active_period_incidences...")
@@ -157,7 +157,7 @@ def run_tests():
     assert int(vac_tot_101) == 12, f"Vacaciones Totales mismatch! Expected 12, got {vac_tot_101}"
     assert int(vac_tom_101) == 5, f"Vacaciones Tomadas mismatch! Expected 5, got {vac_tom_101}"
     assert abs(fi_101 - 1.0493) < 0.001, f"Factor de Integracion mismatch! Expected 1.0493, got {fi_101}"
-    print("✓ Employee 101 calculations verified!")
+    print("[OK] Employee 101 calculations verified!")
     
     # Employee 102 is row 7
     name_102 = ws_read.cell(row=7, column=4).value
@@ -188,7 +188,7 @@ def run_tests():
     assert int(vac_tot_102) == 20, f"Vacaciones Totales mismatch! Expected 20, got {vac_tot_102}"
     assert int(vac_tom_102) == 6, f"Vacaciones Tomadas mismatch! Expected 6, got {vac_tom_102}"
     assert abs(fi_102 - 1.0548) < 0.001, f"Factor de Integracion mismatch! Expected 1.0548, got {fi_102}"
-    print("✓ Employee 102 calculations verified!")
+    print("[OK] Employee 102 calculations verified!")
     
     # Verify remaining vacations formula
     wb_f = openpyxl.load_workbook(test_db, data_only=False)
@@ -199,7 +199,7 @@ def run_tests():
     print(f"Remaining Vacations Formula Row 7: {formula_102}")
     assert formula_101 == "=AL6-AM6", "Formula mismatch in row 6!"
     assert formula_102 == "=AL7-AM7", "Formula mismatch in row 7!"
-    print("✓ Remaining vacations formula verified!")
+    print("[OK] Remaining vacations formula verified!")
     
     wb_read.close()
     wb_f.close()

@@ -2326,10 +2326,43 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         if row_date and start_date <= row_date <= end_date:
                             c_id = clean_employee_id(ws_inc.cell(row=r, column=2).value)
                             if c_id not in agg:
-                                agg[c_id] = {"faltas": 0, "vacaciones": 0, "retardos": 0}
+                                agg[c_id] = {
+                                    "faltas": 0,
+                                    "vacaciones": 0,
+                                    "retardos": 0,
+                                    "forzar_asistencia": "NO",
+                                    "forzar_puntualidad": "NO",
+                                    "forzar_vales": "NO",
+                                    "ajuste_vales": None,
+                                    "ajuste_fondo_ahorro": None
+                                }
                             agg[c_id]["faltas"] += int(ws_inc.cell(row=r, column=4).value or 0)
                             agg[c_id]["retardos"] += int(ws_inc.cell(row=r, column=5).value or 0)
                             agg[c_id]["vacaciones"] += int(ws_inc.cell(row=r, column=6).value or 0)
+                            
+                            max_c = ws_inc.max_column
+                            if max_c >= 11 and ws_inc.cell(row=r, column=11).value == "SI":
+                                agg[c_id]["forzar_asistencia"] = "SI"
+                            if max_c >= 12 and ws_inc.cell(row=r, column=12).value == "SI":
+                                agg[c_id]["forzar_puntualidad"] = "SI"
+                            if max_c >= 13 and ws_inc.cell(row=r, column=13).value == "SI":
+                                agg[c_id]["forzar_vales"] = "SI"
+                            
+                            if max_c >= 14:
+                                aj_val = ws_inc.cell(row=r, column=14).value
+                                if aj_val is not None and str(aj_val).strip() != "":
+                                    try:
+                                        agg[c_id]["ajuste_vales"] = float(aj_val)
+                                    except ValueError:
+                                        pass
+                                        
+                            if max_c >= 15:
+                                aj_fa = ws_inc.cell(row=r, column=15).value
+                                if aj_fa is not None and str(aj_fa).strip() != "":
+                                    try:
+                                        agg[c_id]["ajuste_fondo_ahorro"] = float(aj_fa)
+                                    except ValueError:
+                                        pass
                     except:
                         pass
 
@@ -2364,7 +2397,16 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         except ValueError: return 0.0
 
                     cod_id = clean_employee_id(cod_val) if cod_val is not None else f"TEMP_{row}"
-                    emp_agg = agg.get(cod_id, {"faltas": 0, "vacaciones": 0, "retardos": 0})
+                    emp_agg = agg.get(cod_id, {
+                        "faltas": 0,
+                        "vacaciones": 0,
+                        "retardos": 0,
+                        "forzar_asistencia": "NO",
+                        "forzar_puntualidad": "NO",
+                        "forzar_vales": "NO",
+                        "ajuste_vales": None,
+                        "ajuste_fondo_ahorro": None
+                    })
 
                     # Dynamically read all fields defined in schema
                     emp = {
@@ -2372,7 +2414,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         "_row": row,
                         "faltas": emp_agg["faltas"],
                         "vacaciones": emp_agg["vacaciones"],
-                        "retardos": emp_agg["retardos"]
+                        "retardos": emp_agg["retardos"],
+                        "forzar_asistencia": emp_agg.get("forzar_asistencia", "NO"),
+                        "forzar_puntualidad": emp_agg.get("forzar_puntualidad", "NO"),
+                        "forzar_vales": emp_agg.get("forzar_vales", "NO"),
+                        "ajuste_vales": emp_agg.get("ajuste_vales"),
+                        "ajuste_fondo_ahorro": emp_agg.get("ajuste_fondo_ahorro")
                     }
                     for col in schema["columns"]:
                         f = col["field"]
@@ -2937,13 +2984,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             efectivo = emp_data.get("efectivo", 0.0)
             facturado = emp_data.get("facturado", 0.0)
             deuda_carro = emp_data.get("deuda_carro", 0.0)
-            total_otros = asimilados + gasolina + socio + efectivo + facturado
+            total_otros = asimilados + gasolina + socio + efectivo + facturado + deuda_carro
             bruto_mensual = percepcion_sueldos + total_otros
             bruto_quincenal = bruto_mensual / 2
             
             descuento_faltas = (bruto_quincenal / 15.0) * faltas if faltas > 0 else 0.0
             descuento_adicional = emp_data.get("descuento_adicional", 0.0)
-            neto_quincenal = max(0.0, bruto_quincenal - descuento_faltas - descuento_adicional - deuda_carro)
+            neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) / 2 / 15 * (15 - faltas))
 
             # Determine entry and years completed
             ingreso_str = emp_data.get("ingreso", "")
@@ -2985,7 +3032,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     "- Sueldo Bruto Mensual = Total Percepciones + Otros Ingresos\n"
                     "- Sueldo Bruto Quincenal normal = Bruto Mensual / 2\n"
                     "- Descuento de Faltas proporcional = (Bruto Quincenal / 15) * Faltas\n"
-                    "- Sueldo Neto Quincenal = Bruto Quincenal - Descuento de Faltas - Deducciones"
+                    "- Sueldo Neto Quincenal = (Sueldo Bruto Mensual - Descuento Adicional - Deuda Carro) / 2 / 15 * (15 - Faltas)"
                 )
 
             # Generate local markdown breakdown as fallback
@@ -2993,7 +3040,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             fi_aguinaldo = aguinaldo / 365.0
             fi_prima = (vac * (prima / 100.0)) / 365.0
             
-            local_desglose = f"""### ð ExplicaciÃ³n del CÃ¡lculo de NÃ³mina (Offline)
+            local_desglose = f"""### ðŸ“  ExplicaciÃ³n del CÃ¡lculo de NÃ³mina (Offline)
 
 *Nota: No hay una clave de API de Gemini vÃ¡lida configurada en la base de datos, por lo que se muestra el desglose matemÃ¡tico contable estÃ¡ndar.*
 
@@ -3017,8 +3064,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
   CÃ¡lculo: `=${salario_diario:,.2f} * {dias_mes:.1f}`  
   Resultado: **${sueldo_nominal:,.2f}**
 * **Premios de Asistencia y Puntualidad (10% del SDI mensual cada uno):**  
-  * **Puntualidad:** **${puntualidad:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` â¡ï¸ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
-  * **Asistencia:** **${asistencia:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` â¡ï¸ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Puntualidad:** **${puntualidad:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` âž¡ï¸  `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Asistencia:** **${asistencia:,.2f}** (FÃ³rmula Excel: `=SDI * 10% * DÃas_del_Mes` âž¡ï¸  `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
 * **Vales de Despensa:**  
   FÃ³rmula Excel: `=UMA * Porcentaje_Vales * DÃas_del_Mes`  
   CÃ¡lculo: `=${uma:,.2f} * {vales_pct / 100:.2f} * {dias_mes:.1f}`  
@@ -3034,6 +3081,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 * Pago Socio: `${socio:,.2f}` (Mensual)
 * Pago en Efectivo: `${efectivo:,.2f}` (Mensual)
 * Pago Facturado: `${facturado:,.2f}` (Mensual)
+* Abono Carro: `${deuda_carro:,.2f}` (Mensual)
 * **Total de Otros Conceptos:** **${total_otros:,.2f}** (Mensual)
 
 ---
@@ -3042,12 +3090,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 * **Sueldo Bruto Mensual (Base Total):** **${bruto_mensual:,.2f}** (Sueldo Nominal + Otros Conceptos)
 * **Sueldo Bruto Quincenal:** **${bruto_quincenal:,.2f}** (FÃ³rmula Excel: `=Sueldo_Bruto_Mensual / 2`)
 * **Ajustes, Faltas y Descuentos en la Quincena:**
-  * **Descuento por Faltas ({faltas} dÃas):** DeducciÃ³n de **${descuento_faltas:,.2f}** (FÃ³rmula Excel: `=(Sueldo_Bruto_Quincenal / 15) * Faltas` â¡ï¸ `=({bruto_quincenal:.2f} / 15) * {faltas}`)
+  * **Descuento por Faltas ({faltas} dÃas):** DeducciÃ³n de **${descuento_faltas:,.2f}** (FÃ³rmula Excel: `=(Sueldo_Bruto_Quincenal / 15) * Faltas` âž¡ï¸  `=({bruto_quincenal:.2f} / 15) * {faltas}`)
   * **Descuento Adicional:** **${descuento_adicional:,.2f}**
-  * **DeducciÃ³n por Carro:** **${deuda_carro:,.2f}**
 * **Sueldo Neto Quincenal Final a Pagar:**  
-  FÃ³rmula Excel: `=Sueldo_Bruto_Quincenal - Descuento_Faltas - Descuento_Adicional - DeducciÃ³n_Carro`  
-  CÃ¡lculo: `=${bruto_quincenal:,.2f} - ${descuento_faltas:,.2f} - ${descuento_adicional:,.2f} - ${deuda_carro:,.2f}`  
+  FÃ³rmula Excel: `=(Sueldo_Bruto_Mensual - Descuento_Adicional) / 2 / 15 * (15 - Faltas)`  
+  CÃ¡lculo: `=(${bruto_mensual:,.2f} - ${descuento_adicional:,.2f}) / 2 / 15 * (15 - {faltas})`  
   Resultado: **${neto_quincenal:,.2f}**
 """
 
@@ -3103,7 +3150,7 @@ VALORES REGISTRADOS EN EXCEL:
 - Pago Socio Mensual: ${socio:,.2f}
 - Efectivo Mensual: ${efectivo:,.2f}
 - Facturado Mensual: ${facturado:,.2f}
-- Abono Carro (DeducciÃ³n) Mensual: ${deuda_carro:,.2f}
+- Abono Carro Mensual: ${deuda_carro:,.2f}
 - Total Otros Ingresos Mensual: ${total_otros:,.2f}
 - Sueldo Bruto Mensual: ${bruto_mensual:,.2f}
 - Sueldo Bruto Quincenal base: ${bruto_quincenal:,.2f}

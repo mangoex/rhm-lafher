@@ -376,10 +376,52 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Nominal Perceptions
     const sueldoNominal = (emp.salario_diario && !isBaja) ? (emp.salario_diario * cfg.diasMes) : 0;
-    const puntualidad = (emp.salario_diario && emp.puntualidad === 0) ? 0 : (sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0);
-    const asistencia = (emp.salario_diario && emp.asistencia === 0) ? 0 : (sdi > 0 ? (sdi * 0.10 * cfg.diasMes) : 0);
-    const valesDespensa = (emp.salario_diario && !isBaja) ? (cfg.uma * (cfg.valesPct / 100) * cfg.diasMes) : 0;
-    const fondoAhorro = (emp.salario_diario && emp.fondo_ahorro_activo && !isBaja) ? (sueldoNominal * (cfg.faPct / 100)) : 0;
+    
+    // Calculate puntualidad
+    let puntualidad = 0;
+    if (emp.salario_diario && !isBaja) {
+      const losesPuntualidad = (emp.retardos >= 3) && (emp.forzar_puntualidad !== "SI");
+      if (!losesPuntualidad && sdi > 0) {
+        puntualidad = sdi * 0.10 * cfg.diasMes;
+      }
+    }
+    
+    // Calculate asistencia
+    let asistencia = 0;
+    if (emp.salario_diario && !isBaja) {
+      const losesAsistencia = (emp.faltas > 0) && (emp.forzar_asistencia !== "SI");
+      if (!losesAsistencia && sdi > 0) {
+        asistencia = sdi * 0.10 * cfg.diasMes;
+      }
+    }
+    
+    // Calculate vales de despensa
+    let valesDespensa = 0;
+    if (emp.salario_diario && !isBaja) {
+      if (emp.ajuste_vales !== undefined && emp.ajuste_vales !== null && emp.ajuste_vales !== "") {
+        valesDespensa = parseFloat(emp.ajuste_vales) || 0.0;
+      } else {
+        const baseVales = cfg.uma * (cfg.valesPct / 100) * cfg.diasMes;
+        const effectiveFaltas = emp.forzar_vales === "SI" ? 0 : (emp.faltas || 0);
+        if (effectiveFaltas > 0) {
+          valesDespensa = (baseVales / 15) * (15 - effectiveFaltas);
+        } else {
+          valesDespensa = baseVales;
+        }
+      }
+    }
+    
+    // Calculate fondo de ahorro
+    let fondoAhorro = 0;
+    if (emp.salario_diario && emp.fondo_ahorro_activo && !isBaja) {
+      if (emp.ajuste_fondo_ahorro !== undefined && emp.ajuste_fondo_ahorro !== null && emp.ajuste_fondo_ahorro !== "") {
+        fondoAhorro = parseFloat(emp.ajuste_fondo_ahorro) || 0.0;
+      } else {
+        const baseFA = sueldoNominal * (cfg.faPct / 100);
+        const capFA = 1.3 * cfg.uma * cfg.diasMes;
+        fondoAhorro = Math.min(baseFA, capFA);
+      }
+    }
     
     const percepcionSueldos = sueldoNominal + puntualidad + asistencia + valesDespensa + fondoAhorro;
     
@@ -410,8 +452,8 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
     
-    // Final Net Quincenal
-    const sueldoNetoQuincenal = Math.max(0, sueldoBrutoQuincenalNormal - descuentoFaltas - descuentoAdicional);
+    // Final Net Quincenal matches Excel formula (AG6 = AF6/2/15*(15-Faltas) = (AB6-AE6)/2/15*(15-Faltas))
+    const sueldoNetoQuincenal = Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 / 15 * (15 - faltas));
     
     return {
       antiguedad: yearsOfLabores,
