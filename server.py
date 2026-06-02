@@ -2329,7 +2329,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         if f == "id":
                             continue # Already handled
                         elif t == "float":
-                            emp[f] = val_to_float(val)
+                            if f == "vacaciones_restantes":
+                                tot_idx = get_field_index(schema, "vacaciones_totales")
+                                tom_idx = get_field_index(schema, "vacaciones_tomadas")
+                                tot_val = val_to_float(sheet_v.cell(row=row, column=tot_idx).value) if tot_idx else 0.0
+                                tom_val = val_to_float(sheet_v.cell(row=row, column=tom_idx).value) if tom_idx else 0.0
+                                emp[f] = tot_val - tom_val
+                            else:
+                                emp[f] = val_to_float(val)
                         elif t == "date":
                             if isinstance(val, datetime):
                                 emp[f] = val.strftime("%Y-%m-%d")
@@ -2810,7 +2817,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 t = col["type"]
                 val = sheet_v.cell(row=found_row, column=col["index"]).value
                 if t == "float":
-                    emp_data[f] = val_to_float(val)
+                    if f == "vacaciones_restantes":
+                        tot_idx = get_field_index(schema, "vacaciones_totales")
+                        tom_idx = get_field_index(schema, "vacaciones_tomadas")
+                        tot_val = val_to_float(sheet_v.cell(row=found_row, column=tot_idx).value) if tot_idx else 0.0
+                        tom_val = val_to_float(sheet_v.cell(row=found_row, column=tom_idx).value) if tom_idx else 0.0
+                        emp_data[f] = tot_val - tom_val
+                    else:
+                        emp_data[f] = val_to_float(val)
                 elif t == "boolean":
                     emp_data[f] = str(val or "").upper() == "SI"
                 else:

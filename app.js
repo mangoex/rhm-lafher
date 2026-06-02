@@ -1057,7 +1057,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (emp) {
       const vacTot = emp.vacaciones_totales || 0;
       const vacTom = emp.vacaciones_tomadas || 0;
-      const dbRestantes = emp.vacaciones_restantes !== undefined ? emp.vacaciones_restantes : (vacTot - vacTom);
+      const dbRestantes = (vacTot - vacTom);
       const currentVacVal = inc ? (inc.vacaciones || 0) : 0;
       const allowedMax = dbRestantes + currentVacVal;
       
@@ -1271,7 +1271,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const vacTot = emp.vacaciones_totales || 0;
       const vacTom = emp.vacaciones_tomadas || 0;
-      const vacRest = emp.vacaciones_restantes !== undefined ? emp.vacaciones_restantes : (vacTot - vacTom);
+      const vacRest = (vacTot - vacTom);
 
       let rowHtml = `
         <tr ${rowClass}>
