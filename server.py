@@ -28,8 +28,22 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     STATIC_DIR = BASE_DIR
+    
+    # Test if CONFIG_DIR (BASE_DIR) is writable; if not, fallback to a writable folder
     CONFIG_DIR = BASE_DIR
-    SCHEMA_PATH = os.path.join(BASE_DIR, "schema.json")
+    test_file = os.path.join(CONFIG_DIR, ".write_test")
+    try:
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+    except Exception:
+        CONFIG_DIR = os.path.expanduser("~/.rhm_prenomina")
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+        except Exception:
+            CONFIG_DIR = "/tmp"
+            
+    SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
 
 import shutil
 import hashlib
@@ -722,12 +736,17 @@ def upgrade_model_name(model_name):
 
 def load_schema():
     default_schema = {"columns": [], "uma_cell": "S3", "period": "16 al 30 Abr 2026", "ai_provider": "google", "ai_model": "gemini-2.5-flash", "pending_clarifications": [], "payroll_rules": ""}
-    if not os.path.exists(SCHEMA_PATH):
+    
+    path_to_load = SCHEMA_PATH
+    if not os.path.exists(path_to_load):
+        path_to_load = os.path.join(BASE_DIR, "schema.json")
+        
+    if not os.path.exists(path_to_load):
         docx_local = os.path.join(BASE_DIR, "CALCULO DE LA PRENOMINA.docx")
         default_schema["payroll_rules"] = extract_default_payroll_rules(docx_local)
         return default_schema
     try:
-        with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+        with open(path_to_load, "r", encoding="utf-8") as f:
             data = json.load(f)
             
             # Auto-upgrade deprecated Gemini 2.0 models to 2.5
@@ -768,11 +787,13 @@ def get_excel_path():
             opt1 = os.path.abspath(os.path.join(CONFIG_DIR, db_path))
             if os.path.exists(opt1):
                 return opt1
+            if CONFIG_DIR != BASE_DIR:
+                return opt1
             return os.path.abspath(os.path.join(BASE_DIR, db_path))
     except Exception as e:
         print("Error getting Excel path from schema:", e)
     
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, 'frozen', False) or CONFIG_DIR != BASE_DIR:
         return os.path.abspath(os.path.join(CONFIG_DIR, "Nomina ciega.xlsx"))
     return os.path.abspath(os.path.join(BASE_DIR, "Nomina ciega.xlsx"))
 
