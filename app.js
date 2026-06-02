@@ -52,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const modelSelect = document.getElementById("cfg-ai-model-select");
     const modelGroup = document.getElementById("cfg-ai-model-group");
     const customGroup = document.getElementById("cfg-ai-model-custom-group");
-    const keyGroup = document.getElementById("cfg-ai-key-group");
+    const keyGroup = document.getElementById("cfg-ai-status-group");
     
     if (provider === "none") {
       if (modelGroup) modelGroup.style.display = "none";
@@ -97,32 +97,20 @@ document.addEventListener("DOMContentLoaded", () => {
       .then(res => res.json())
       .then(data => {
         const badge = document.getElementById("ai-key-status-badge");
-        const keyInput = document.getElementById("cfg-ai-key");
         const chatInput = document.getElementById("ai-chat-input");
         const chatSend = document.getElementById("btn-ai-chat-send");
-        const deleteBtn = document.getElementById("btn-delete-ai-key");
         
         if (badge) {
           if (data.configured) {
             badge.className = "badge success";
-            badge.innerHTML = `<span class="pulse-dot success" id="ai-status-pulse"></span> <span id="ai-status-text">Conectado / Clave Guardada</span>`;
-            if (keyInput) {
-              keyInput.value = "";
-              keyInput.placeholder = "•••••••••••••••••••••••• (Clave Guardada)";
-            }
+            badge.innerHTML = `<span class="pulse-dot success" id="ai-status-pulse"></span> <span id="ai-status-text">Activo / Variable Detectada</span>`;
             if (chatInput) chatInput.disabled = false;
             if (chatSend) chatSend.disabled = false;
-            if (deleteBtn) deleteBtn.style.display = "flex";
           } else {
             badge.className = "badge danger";
-            badge.innerHTML = `<span class="pulse-dot danger" id="ai-status-pulse"></span> <span id="ai-status-text">Sin Clave / Desconectado</span>`;
-            if (keyInput) {
-              keyInput.value = "";
-              keyInput.placeholder = "Introduce tu clave API...";
-            }
+            badge.innerHTML = `<span class="pulse-dot danger" id="ai-status-pulse"></span> <span id="ai-status-text">Inactivo / Sin Variable</span>`;
             if (chatInput) chatInput.disabled = true;
             if (chatSend) chatSend.disabled = true;
-            if (deleteBtn) deleteBtn.style.display = "none";
           }
           if (window.lucide) lucide.createIcons();
         }
@@ -1419,33 +1407,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const btnDeleteAiKey = document.getElementById("btn-delete-ai-key");
-  if (btnDeleteAiKey) {
-    btnDeleteAiKey.addEventListener("click", () => {
-      if (confirm("¿Estás seguro de que deseas eliminar la clave API guardada? Esto desactivará el asistente de IA hasta que configures una nueva clave.")) {
-        fetch("/api/secrets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ai_api_key: "" })
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.error) {
-              showToast("Error al eliminar la clave: " + data.error, "error");
-            } else {
-              showToast("Clave de API eliminada con éxito.");
-              const keyInput = document.getElementById("cfg-ai-key");
-              if (keyInput) keyInput.value = "";
-              updateAIStatusUI();
-            }
-          })
-          .catch(err => {
-            console.error("Error deleting API key:", err);
-            showToast("Error de conexión al intentar eliminar la clave.", "error");
-          });
-      }
-    });
-  }
+
 
   const aiModelSelect = document.getElementById("cfg-ai-model-select");
   if (aiModelSelect) {
@@ -1474,7 +1436,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const ai_model = modelSelectVal === "custom" 
         ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.0-flash")
         : modelSelectVal;
-      const api_key = document.getElementById("cfg-ai-key") ? document.getElementById("cfg-ai-key").value.trim() : "";
       const rules = document.getElementById("cfg-payroll-rules") ? document.getElementById("cfg-payroll-rules").value : "";
  
       if (db_path.toLowerCase().endsWith(".pages")) {
@@ -1509,30 +1470,8 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
           }
           
-          if (api_key) {
-            fetch("/api/secrets", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ai_api_key: api_key })
-            })
-              .then(sRes => sRes.json())
-              .then(sData => {
-                if (sData.error) {
-                  showToast("Configuración guardada, pero hubo un error al guardar la clave API: " + sData.error, "warning");
-                } else {
-                  showToast("Configuración y clave API guardadas con éxito.");
-                }
-                loadState();
-              })
-              .catch(err => {
-                console.error("Error saving API key:", err);
-                showToast("Configuración guardada, pero falló al registrar la clave API.", "error");
-                loadState();
-              });
-          } else {
-            showToast("Configuración guardada con éxito.");
-            loadState();
-          }
+          showToast("Configuración guardada con éxito.");
+          loadState();
         })
         .catch(err => {
           console.error("Error guardando config:", err);

@@ -1610,7 +1610,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/secrets"]:
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules"]:
             if session["role"] != "admin":
                 self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
                 return
@@ -1639,8 +1639,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.save_period(body)
         elif path_only == "/api/config":
             self.save_config(body)
-        elif path_only == "/api/secrets":
-            self.save_secrets_endpoint(body)
         elif path_only == "/api/schema/clarify":
             self.save_clarify(body)
         elif path_only == "/api/payroll/explain":
@@ -1846,28 +1844,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_json({"error": str(e)}, 500)
 
-    def save_secrets_endpoint(self, body):
-        try:
-            if "ai_api_key" in body or "gemini_api_key" in body:
-                api_key = body.get("ai_api_key", "").strip() or body.get("gemini_api_key", "").strip()
-                sec = load_secrets()
-                schema = load_schema()
-                provider = schema.get("ai_provider", "google").strip().lower()
-                
-                if api_key == "":
-                    sec["ai_api_key"] = ""
-                    sec["google_api_key"] = ""
-                    sec["openrouter_api_key"] = ""
-                else:
-                    if provider == "openrouter":
-                        sec["openrouter_api_key"] = api_key
-                    else:
-                        sec["google_api_key"] = api_key
-                        sec["ai_api_key"] = api_key
-                save_secrets(sec)
-            self.send_json({"success": True})
-        except Exception as e:
-            self.send_json({"error": str(e)}, 500)
+
 
     def get_incidences_endpoint(self, employee_id):
         try:
@@ -2702,7 +2679,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             prima = float(body.get("prima", 25.0))
             ai_provider = body.get("ai_provider", "google").strip().lower()
             ai_model = body.get("ai_model", "gemini-2.0-flash").strip()
-            ai_api_key = body.get("ai_api_key", "").strip()
             db_path = body.get("db_path", "")
             payroll_rules = body.get("payroll_rules", "")
 
@@ -2727,16 +2703,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 schema["db_path"] = db_path.strip()
                 
             save_schema(schema)
-
-            # Save API key to secrets.json (gitignored) if provided
-            if ai_api_key:
-                sec = load_secrets()
-                if ai_provider == "openrouter":
-                    sec["openrouter_api_key"] = ai_api_key
-                else:
-                    sec["google_api_key"] = ai_api_key
-                    sec["ai_api_key"] = ai_api_key
-                save_secrets(sec)
 
             excel_path = get_excel_path()
             copy_template_if_needed(excel_path)

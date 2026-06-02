@@ -554,24 +554,21 @@
               <input type="text" id="cfg-ai-model-custom" placeholder="ej. google/gemini-2.5-pro" style="width: 100%;">
             </div>
             
-            <div class="form-group" id="cfg-ai-key-group" style="margin-bottom: 1rem;">
-              <label for="cfg-ai-key" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                <span>Clave de API</span>
+            <div class="form-group" id="cfg-ai-status-group" style="margin-bottom: 1rem;">
+              <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                <span>Estado del Asistente IA</span>
                 <span id="ai-key-status-badge" class="badge danger" style="font-size: 0.75rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px; font-weight: 500;">
                   <span class="pulse-dot danger" id="ai-status-pulse"></span>
                   <span id="ai-status-text">Sin Clave / Desconectado</span>
                 </span>
               </label>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <div style="position: relative; flex: 1; display: flex; align-items: center;">
-                  <input type="password" id="cfg-ai-key" placeholder="Introduce tu clave API..." autocomplete="new-password" style="padding-right: 40px; width: 100%; outline: none;">
-                  <button type="button" id="toggle-api-key" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--text-muted);">
-                    <i data-lucide="eye"></i>
-                  </button>
-                </div>
-                <button type="button" id="btn-delete-ai-key" class="btn btn-sm btn-danger" title="Eliminar clave guardada" style="display: none; height: 38px; padding: 0 12px; justify-content: center; align-items: center;">
-                  <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
-                </button>
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--input-radius); font-size: 0.825rem; line-height: 1.4; color: var(--text-muted);">
+                <i data-lucide="info" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px; color: #10b981;"></i>
+                Para habilitar el asistente de IA, asegúrate de configurar las variables de entorno en tu servidor de despliegue (ej. Railway):
+                <ul style="margin: 0.5rem 0 0 1.2rem; padding: 0; list-style-type: disc;">
+                  <li><strong>GEMINI_API_KEY</strong> (para Google Gemini)</li>
+                  <li><strong>OPENROUTER_API_KEY</strong> (para OpenRouter)</li>
+                </ul>
               </div>
             </div>
           </div>
