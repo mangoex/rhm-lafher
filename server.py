@@ -9,7 +9,7 @@ from datetime import datetime
 import traceback
 import os
 
-PORT = int(os.environ.get("PORT", 8000))
+PORT = 8000
 import sys
 
 # Resolve paths for PyInstaller standalone executables
