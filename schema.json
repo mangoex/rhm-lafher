@@ -411,6 +411,39 @@
       "label": "Descuento Mensual Acumulado",
       "editable": false,
       "incidence_editable": false
+    },
+    {
+      "index": 38,
+      "letter": "AL",
+      "header": "Vacaciones Totales / Derecho",
+      "field": "vacaciones_totales",
+      "type": "float",
+      "category": "calculated",
+      "label": "Vacaciones Totales / Derecho",
+      "editable": false,
+      "incidence_editable": false
+    },
+    {
+      "index": 39,
+      "letter": "AM",
+      "header": "Vacaciones Tomadas",
+      "field": "vacaciones_tomadas",
+      "type": "float",
+      "category": "calculated",
+      "label": "Vacaciones Tomadas",
+      "editable": false,
+      "incidence_editable": false
+    },
+    {
+      "index": 40,
+      "letter": "AN",
+      "header": "Vacaciones Restantes / Disponibles",
+      "field": "vacaciones_restantes",
+      "type": "float",
+      "category": "calculated",
+      "label": "Vacaciones Restantes / Disponibles",
+      "editable": false,
+      "incidence_editable": false
     }
   ],
   "vales_pct_cell": "P3",

@@ -357,6 +357,38 @@ def save_incidence_to_excel(wb, data):
 def recompile_active_period_incidences(wb, schema):
     ws = wb.active # Hoja1
     
+    def add_years(d, years):
+        try:
+            return d.replace(year=d.year + years)
+        except ValueError:
+            return d.replace(year=d.year + years, day=28)
+            
+    def get_vacation_allowance(y):
+        if y < 1:
+            return 0
+        elif y == 1:
+            return 12
+        elif y == 2:
+            return 14
+        elif y == 3:
+            return 16
+        elif y == 4:
+            return 18
+        elif y == 5:
+            return 20
+        elif y <= 10:
+            return 22
+        elif y <= 15:
+            return 24
+        elif y <= 20:
+            return 26
+        elif y <= 25:
+            return 28
+        elif y <= 30:
+            return 30
+        else:
+            return 20 + 2 * ((y - 1) // 5)
+            
     # First, make sure Incidencias is migrated if needed
     heal_incidences_sheet_if_needed(wb, schema)
     
@@ -364,6 +396,7 @@ def recompile_active_period_incidences(wb, schema):
     start_date, end_date = parse_period_dates(period_str)
     
     agg = {}
+    all_incidences = []
     if "Incidencias" in wb.sheetnames:
         ws_inc = wb["Incidencias"]
         # Batch load all rows in memory (tuple format: 0-indexed)
@@ -380,9 +413,24 @@ def recompile_active_period_incidences(wb, schema):
                 
             try:
                 row_date = parse_date_robust(date_val)
+                cod_val = row_cells[1] if len(row_cells) >= 2 else None
+                c_id = clean_employee_id(cod_val)
+                
+                # Load for historical vacations check
+                if row_date and c_id and len(row_cells) >= 6:
+                    try:
+                        vac_val = row_cells[5]
+                        vac_days = int(vac_val or 0)
+                    except:
+                        vac_days = 0
+                    if vac_days > 0:
+                        all_incidences.append({
+                            "id": c_id,
+                            "date": row_date,
+                            "vacaciones": vac_days
+                        })
+                
                 if row_date and start_date <= row_date <= end_date:
-                    cod_val = row_cells[1] if len(row_cells) >= 2 else None
-                    c_id = clean_employee_id(cod_val)
                     if c_id not in agg:
                         agg[c_id] = {
                             "faltas": 0,
@@ -481,6 +529,13 @@ def recompile_active_period_incidences(wb, schema):
     vales_col = get_field_index(schema, "vales_despensa")
     fa_col = get_field_index(schema, "fondo_ahorro")
     
+    ingreso_col = get_field_index(schema, "ingreso")
+    antiguedad_col = get_field_index(schema, "antiguedad")
+    fi_col = get_field_index(schema, "factor_integracion")
+    vac_totales_col = get_field_index(schema, "vacaciones_totales")
+    vac_tomadas_col = get_field_index(schema, "vacaciones_tomadas")
+    vac_restantes_col = get_field_index(schema, "vacaciones_restantes")
+    
     # Cells config
     uma_cell = ensure_absolute_cell(schema.get("uma_cell", "S3"))
     vales_pct_cell = ensure_absolute_cell(schema.get("vales_pct_cell", "P3"))
@@ -509,6 +564,57 @@ def recompile_active_period_incidences(wb, schema):
         if nombre_val:
             cod_id = clean_employee_id(cod_val) if cod_val is not None else f"TEMP_{row}"
             
+            # Calculate and set dynamic calculations for vacations, antiquity and Factor de Integración
+            if ingreso_col:
+                ingreso_val = ws.cell(row=row, column=ingreso_col).value
+                ingreso_dt = parse_date_robust(ingreso_val)
+                baja_col = get_field_index(schema, "baja")
+                baja_val = ws.cell(row=row, column=baja_col).value if baja_col else None
+                baja_dt = parse_date_robust(baja_val)
+                
+                if ingreso_dt:
+                    corte_date = baja_dt if baja_dt else end_date
+                    diff_days = (corte_date - ingreso_dt).days
+                    antiguedad_val = round(diff_days / 365.25, 4)
+                    
+                    if antiguedad_col:
+                        ws.cell(row=row, column=antiguedad_col).value = antiguedad_val
+                        
+                    completed_years = int(diff_days / 365.25)
+                    vac_derecho = get_vacation_allowance(completed_years)
+                    
+                    if vac_totales_col:
+                        ws.cell(row=row, column=vac_totales_col).value = float(vac_derecho)
+                        
+                    last_anniversary = add_years(ingreso_dt, completed_years)
+                    next_anniversary = add_years(ingreso_dt, completed_years + 1)
+                    
+                    vac_tomadas = 0
+                    for inc in all_incidences:
+                        if inc["id"] == cod_id and last_anniversary <= inc["date"] < next_anniversary:
+                            vac_tomadas += inc["vacaciones"]
+                            
+                    if vac_tomadas_col:
+                        ws.cell(row=row, column=vac_tomadas_col).value = float(vac_tomadas)
+                        
+                    if vac_restantes_col:
+                        tot_letter = get_field_letter(schema, "vacaciones_totales")
+                        tom_letter = get_field_letter(schema, "vacaciones_tomadas")
+                        ws.cell(row=row, column=vac_restantes_col).value = f"={tot_letter}{row}-{tom_letter}{row}"
+                        
+                    if fi_col:
+                        if not baja_dt:
+                            fi = 1 + (15/365) + ((vac_derecho * 0.25) / 365)
+                            ws.cell(row=row, column=fi_col).value = round(fi, 4)
+                        else:
+                            ws.cell(row=row, column=fi_col).value = 0.0
+                else:
+                    if antiguedad_col: ws.cell(row=row, column=antiguedad_col).value = 0.0
+                    if vac_totales_col: ws.cell(row=row, column=vac_totales_col).value = 0.0
+                    if vac_tomadas_col: ws.cell(row=row, column=vac_tomadas_col).value = 0.0
+                    if vac_restantes_col: ws.cell(row=row, column=vac_restantes_col).value = 0.0
+                    if fi_col: ws.cell(row=row, column=fi_col).value = 0.0
+
             # Reset defaults in Hoja1
             if descuento_col:
                 ws.cell(row=row, column=descuento_col).value = None
@@ -1228,9 +1334,63 @@ def heal_schema_with_ai(current_headers, old_schema):
         print("AI Schema healing failed or timed out. Falling back to local deterministic schema healing.")
         return heal_schema_locally(current_headers, old_schema)
 
+def ensure_vacation_columns_in_excel(excel_path, schema):
+    if not os.path.exists(excel_path):
+        return
+    try:
+        wb = load_workbook_agnostic(excel_path, data_only=False)
+        ws = wb.active
+        headers_row = find_headers_row(ws)
+        
+        # Read the headers of this row
+        headers = []
+        for c in range(1, ws.max_column + 1):
+            val = ws.cell(row=headers_row, column=c).value
+            headers.append(val)
+            
+        while headers and (headers[-1] is None or str(headers[-1]).strip() == ""):
+            headers.pop()
+            
+        headers_upper = [str(h).upper().strip() for h in headers if h is not None]
+        
+        needed_columns = [
+            ("Vacaciones Totales / Derecho", "vacaciones_totales", 38, "AL"),
+            ("Vacaciones Tomadas", "vacaciones_tomadas", 39, "AM"),
+            ("Vacaciones Restantes / Disponibles", "vacaciones_restantes", 40, "AN")
+        ]
+        
+        modified = False
+        for name, field, target_idx, letter in needed_columns:
+            found = False
+            for h in headers:
+                if h and str(h).upper().strip() in [
+                    name.upper(), 
+                    "VACACIONES TOTALES", 
+                    "VACACIONES DERECHO", 
+                    "VACACIONES TOMADAS", 
+                    "VACACIONES RESTANTES", 
+                    "VACACIONES DISPONIBLES",
+                    "VACACIONES TOTALES / DERECHO",
+                    "VACACIONES RESTANTES / DISPONIBLES"
+                ]:
+                    found = True
+                    break
+            if not found:
+                print(f"Adding column '{name}' at index {target_idx} ({letter}) in Excel file...")
+                ws.cell(row=headers_row, column=target_idx).value = name
+                modified = True
+                
+        if modified:
+            save_workbook_agnostic(wb, excel_path)
+            
+        wb.close()
+    except Exception as e:
+        print("Error ensuring vacation columns in Excel:", e)
+
 def check_and_heal_schema():
     schema = load_schema()
     excel_path = get_excel_path()
+    ensure_vacation_columns_in_excel(excel_path, schema)
     if not os.path.exists(excel_path):
         return schema
     try:
@@ -1323,7 +1483,8 @@ def inject_formulas_dynamically(ws, row, schema):
         "bruto_mensual": f"=SUM({L('percepcion_sueldos')}{row}:{L('deuda_carro')}{row})",
         "bruto_quincenal": f"={L('bruto_mensual')}{row}/2",
         "bruto_mensual_neto": f"={L('bruto_mensual')}{row}{ded_sub_str}",
-        "descuento_quincenal_acumulado": f"={L('bruto_quincenal')}{row}-{L('neto_quincenal')}{row}"
+        "descuento_quincenal_acumulado": f"={L('bruto_quincenal')}{row}-{L('neto_quincenal')}{row}",
+        "vacaciones_restantes": f"={L('vacaciones_totales')}{row}-{L('vacaciones_tomadas')}{row}"
     }
  
     # Write formulas into the spreadsheet row
@@ -2919,16 +3080,20 @@ Deducciones de Ley Estimadas (para tu explicación contable detallada):
 Instrucciones Especiales de Lógica Contable:
 - Condonaciones o Justificaciones: Si el usuario te indica que una falta está justificada o condonada (ej. "trajo incapacidad", "perdónale la falta", "págale completo"), debes generar un JSON de cambios estableciendo `"forzar_asistencia": "SI"`, `"forzar_vales": "SI"` y `"forzar_puntualidad": "SI"` (según corresponda), y escribir el motivo en `"observaciones"` (ej. "Incapacidad médica justificante / Faltas condonadas").
 - Planes de Amortización de Préstamos: Si el usuario te indica registrar un préstamo de $M para pagarse en N quincenas, divide el monto (M / N) y genera un JSON con el campo de deducción correspondiente (ej. `"descuento_adicional"`) establecido a ese monto quincenal (redondeado a centavos). Escribe en `"observaciones"` el desglose descriptivo de la amortización, ej. "Amortización de préstamo quincena 1 de N (monto quincenal: $Q, total: $M)".
+- Registro de Vacaciones Pasadas (Históricas): Si el usuario indica que un colaborador ya tomó N días de vacaciones antes del uso de este sistema (ej. "ya tomó 3 días de vacaciones en enero", "descuenta 3 días de vacaciones previas a Juan"), debes generar un JSON estableciendo `"vacaciones": N`, `"date": "YYYY-MM-DD"` (escribe la fecha exacta mencionada, o una fecha representativa del pasado dentro de su ciclo de aniversario actual, por ejemplo en enero u otro mes según corresponda), y `"observaciones": "Registro histórico: Vacaciones tomadas previas al uso del sistema"`. El sistema acumulará y descontará automáticamente del derecho de vacaciones anuales.
 
 Instrucciones Generales:
 1. Explica el desglose del cálculo del colaborador de forma clara, profesional y paso a paso usando Markdown.
-2. Si el usuario te da instrucciones de registrar incidencias, modificar datos o aplicar ajustes (por ejemplo, "Tiene 2 faltas", "Quítale el bono de puntualidad", "Ponle un descuento adicional de $500", "Lleva un retardo", "Págale vales completos", "Fuerza su asistencia", "Ajusta sus vales a $1200", "Registra préstamo de $3000 a 6 quincenas", etc.), debes responder confirmando la acción y obligatoriamente incluir al final de tu respuesta un bloque de código JSON con el formato exacto descrito abajo.
+2. Si el usuario te da instrucciones de registrar incidencias, modificar datos o aplicar ajustes (por ejemplo, "Tiene 2 faltas", "Quítale el bono de puntualidad", "Ponle un descuento adicional de $500", "Lleva un retardo", "Págale vales completos", "Fuerza su asistencia", "Ajusta sus vales a $1200", "Registra préstamo de $3000 a 6 quincenas", "Registra 3 días de vacaciones previas", etc.), debes responder confirmando la acción y obligatoriamente incluir al final de tu respuesta un bloque de código JSON con el formato exacto descrito abajo.
 3. Si el usuario solo está conversando o haciendo preguntas sin solicitar un cambio/registro de incidencias, responde de forma conversacional normal y NO incluyas el bloque JSON.
 
-Formato del bloque JSON para cambios (debe ser un bloque de cÃ³digo Markdown con ```json ... ```):
+Formato del bloque JSON para cambios (debe ser un bloque de código Markdown con ```json ... ```):
 {{
   "apply_changes": {{
-    "faltas": 2,                      // (opcional) nÃºmero total de faltas en la quincena
+    "date": "2026-01-15",             // (opcional) fecha en formato YYYY-MM-DD para registrar incidencias en fechas pasadas
+    "faltas": 2,                      // (opcional) número total de faltas en la quincena
+    "retardos": 1,                    // (opcional) número total de retardos
+    "vacaciones": 3,                  // (opcional) número total de vacaciones tomadas
     "descuento_adicional": 500.0,     // (opcional) monto del descuento adicional en pesos{dynamic_ded_fields_str}
     "observaciones": "Texto...",       // (opcional) observaciones sobre la incidencia o cambio
     "puntualidad": false,             // (opcional) true/false o "SI"/"NO" para habilitar/deshabilitar el bono de puntualidad
@@ -3004,15 +3169,23 @@ Nota: El descuento por faltas se calcularÃ¡ automÃ¡ticamente con base en las
                             if found_row:
                                 nombre_val = ws.cell(row=found_row, column=nombre_col).value
                                 
-                                # Determine appropriate date (either today, or active period start date) in Mexico timezone
+                                # Determine appropriate date (either today, or active period start date, or custom AI date) in Mexico timezone
                                 import datetime
                                 tz_mex = datetime.timezone(datetime.timedelta(hours=-6))
                                 today_mex = datetime.datetime.now(tz_mex).date()
                                 today_str = today_mex.strftime("%Y-%m-%d")
                                 period_str = schema.get("period", "16 al 30 Abr 2026")
                                 start_date, end_date = parse_period_dates(period_str)
-                                if not (start_date <= today_mex <= end_date):
-                                    today_str = start_date.strftime("%Y-%m-%d")
+                                
+                                # Use custom date from changes if provided
+                                custom_date_str = changes.get("date") or changes.get("fecha")
+                                if custom_date_str:
+                                    custom_date = parse_date_robust(custom_date_str)
+                                    if custom_date:
+                                        today_str = custom_date.strftime("%Y-%m-%d")
+                                else:
+                                    if not (start_date <= today_mex <= end_date):
+                                        today_str = start_date.strftime("%Y-%m-%d")
 
                                 # Try to load existing incidence on today_str for this employee
                                 ws_inc = wb["Incidencias"] if "Incidencias" in wb.sheetnames else None
@@ -3067,6 +3240,14 @@ Nota: El descuento por faltas se calcularÃ¡ automÃ¡ticamente con base en las
                                 ai_faltas = changes.get("faltas")
                                 if ai_faltas is not None:
                                     existing_inc["faltas"] = int(ai_faltas)
+                                
+                                ai_retardos = changes.get("retardos")
+                                if ai_retardos is not None:
+                                    existing_inc["retardos"] = int(ai_retardos)
+                                    
+                                ai_vacaciones = changes.get("vacaciones")
+                                if ai_vacaciones is not None:
+                                    existing_inc["vacaciones"] = int(ai_vacaciones)
                                 
                                 ai_desc = changes.get("descuento_adicional")
                                 if ai_desc is not None:

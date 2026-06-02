@@ -972,6 +972,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inc = (state.currentEmployeeIncidences || []).find(i => i.date === selectedDate);
     
     if (inc) {
+      state.currentLoadedVacationsForThisDate = inc.vacaciones || 0;
       document.getElementById("inc-faltas").value = inc.faltas || 0;
       document.getElementById("inc-retardos").value = inc.retardos || 0;
       document.getElementById("inc-vacaciones").value = inc.vacaciones || 0;
@@ -1010,6 +1011,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     } else {
+      state.currentLoadedVacationsForThisDate = 0;
       // Reset values
       document.getElementById("inc-faltas").value = 0;
       document.getElementById("inc-retardos").value = 0;
@@ -1049,6 +1051,22 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     }
+    
+    // Recalculate available vacations label
+    const emp = state.employees.find(e => e.id === state.selectedIncidenceEmployeeId);
+    if (emp) {
+      const vacTot = emp.vacaciones_totales || 0;
+      const vacTom = emp.vacaciones_tomadas || 0;
+      const dbRestantes = emp.vacaciones_restantes !== undefined ? emp.vacaciones_restantes : (vacTot - vacTom);
+      const currentVacVal = inc ? (inc.vacaciones || 0) : 0;
+      const allowedMax = dbRestantes + currentVacVal;
+      
+      const vacDisponiblesEl = document.getElementById("inc-vacaciones-disponibles-help");
+      if (vacDisponiblesEl) {
+        vacDisponiblesEl.textContent = `Disponibles: ${allowedMax} días`;
+        vacDisponiblesEl.setAttribute("data-restantes", allowedMax);
+      }
+    }
   }
 
   const formIncidence = document.getElementById("form-capture-incidence");
@@ -1060,6 +1078,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const faltas = parseInt(document.getElementById("inc-faltas").value) || 0;
       const retardos = parseInt(document.getElementById("inc-retardos").value) || 0;
       const vacaciones = parseInt(document.getElementById("inc-vacaciones").value) || 0;
+      
+      // Vacation validation warning
+      const vacDisponiblesEl = document.getElementById("inc-vacaciones-disponibles-help");
+      const vacRestantes = vacDisponiblesEl ? parseFloat(vacDisponiblesEl.getAttribute("data-restantes") || "0") : 0;
+      
+      if (vacaciones > vacRestantes) {
+        if (!confirm(`El colaborador solo cuenta con ${vacRestantes} días de vacaciones disponibles para este ciclo anual. Estás intentando registrar ${vacaciones} días. ¿Deseas continuar?`)) {
+          return;
+        }
+      }
+      
       const observaciones = document.getElementById("inc-observaciones").value.trim();
       const puntualidad = document.getElementById("inc-puntualidad") ? document.getElementById("inc-puntualidad").value : "SI";
       const asistencia = document.getElementById("inc-asistencia") ? document.getElementById("inc-asistencia").value : "SI";
@@ -1166,6 +1195,9 @@ document.addEventListener("DOMContentLoaded", () => {
           <th rowspan="2">Nombre Completo</th>
           <th rowspan="2">Fecha Ingreso</th>
           <th rowspan="2">Antigüedad (Años)</th>
+          <th rowspan="2" style="background: rgba(16, 185, 129, 0.08); color: #10b981;">Vac. Derecho</th>
+          <th rowspan="2" style="background: rgba(16, 185, 129, 0.08); color: #10b981;">Vac. Tomadas</th>
+          <th rowspan="2" style="background: rgba(16, 185, 129, 0.08); color: #10b981;">Vac. Restantes</th>
           <th rowspan="2">F.A.?</th>
           <th colspan="${nominalCols.length}">Esquema Nominal IMSS (Cálculos Base)</th>
           <th colspan="${otherCols.length + 1}">Otros Conceptos (Esquemas Base)</th>
@@ -1237,6 +1269,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const rowClass = calc.isBaja ? 'style="opacity: 0.4;"' : '';
       const faLabel = calc.isBaja ? '-' : (emp.fondo_ahorro_activo ? 'SI' : 'NO');
       
+      const vacTot = emp.vacaciones_totales || 0;
+      const vacTom = emp.vacaciones_tomadas || 0;
+      const vacRest = emp.vacaciones_restantes !== undefined ? emp.vacaciones_restantes : (vacTot - vacTom);
+
       let rowHtml = `
         <tr ${rowClass}>
           <td class="align-center">${calc.isBaja ? '-' : idx}</td>
@@ -1248,6 +1284,9 @@ document.addEventListener("DOMContentLoaded", () => {
           </td>
           <td class="align-center">${emp.ingreso || '-'}</td>
           <td class="align-center">${calc.antiguedad.toFixed(1)}</td>
+          <td class="align-center" style="background: rgba(16, 185, 129, 0.03); font-weight: 600;">${calc.isBaja ? '-' : vacTot}</td>
+          <td class="align-center" style="background: rgba(16, 185, 129, 0.03);">${calc.isBaja ? '-' : (vacTom > 0 ? vacTom : '-')}</td>
+          <td class="align-center" style="background: rgba(16, 185, 129, 0.03); font-weight: 700; color: ${vacRest <= 0 ? 'var(--danger)' : '#10b981'};">${calc.isBaja ? '-' : vacRest}</td>
           <td class="align-center">${faLabel}</td>
       `;
 
@@ -1300,7 +1339,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render general sum row
     let sumRowHtml = `
       <tr class="total-row">
-        <td colspan="7" class="align-left">TOTALES / SUMAS GENERALES</td>
+        <td colspan="10" class="align-left">TOTALES / SUMAS GENERALES</td>
     `;
 
     nominalCols.forEach(c => {
