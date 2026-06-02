@@ -2330,9 +2330,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const messagesDiv = document.getElementById("ai-chat-messages");
     if (!messagesDiv) return;
     
-    // Strip JSON block containing "apply_changes" so the user doesn't see it
+    // Strip any markdown code blocks containing AI instructions or JSON results (apply_changes, filter_employee_ids)
     let cleanText = text || "";
-    cleanText = cleanText.replace(/```(?:json)?\s*\{[\s\S]*?"apply_changes"[\s\S]*?\}\s*```/gi, "");
+    cleanText = cleanText.replace(/```(?:json)?\s*[\s\S]*?(?:"apply_changes"|"filter_employee_ids")[\s\S]*?```/gi, "");
     cleanText = cleanText.trim();
 
     const formatted = formatMarkdown(cleanText);
@@ -2423,11 +2423,42 @@ document.addEventListener("DOMContentLoaded", () => {
           const confirmBox = document.createElement("div");
           confirmBox.className = "chat-message assistant";
           const changesJson = JSON.stringify(data.proposed_changes).replace(/'/g, "\\'");
+          
+          let changesHtml = "";
+          const changesList = Array.isArray(data.proposed_changes) ? data.proposed_changes : [data.proposed_changes];
+          changesList.forEach(item => {
+            let details = [];
+            if (item.faltas !== undefined && item.faltas !== 0) details.push(`Faltas: ${item.faltas}`);
+            if (item.retardos !== undefined && item.retardos !== 0) details.push(`Retardos: ${item.retardos}`);
+            if (item.vacaciones !== undefined && item.vacaciones !== 0) details.push(`Vacaciones: ${item.vacaciones}`);
+            if (item.descuento_adicional !== undefined && item.descuento_adicional !== 0) details.push(`Descuento Adicional: $${parseFloat(item.descuento_adicional).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
+            if (item.observaciones) details.push(`Obs: "${item.observaciones}"`);
+            
+            // Check dynamic deductions in schema if they have values
+            if (state.schema && state.schema.columns) {
+              state.schema.columns.forEach(col => {
+                if (col.category === "deduction" && col.incidence_editable && col.field !== "descuento_adicional") {
+                  const val = item[col.field];
+                  if (val !== undefined && val !== 0) {
+                    details.push(`${col.label || col.header}: $${parseFloat(val).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
+                  }
+                }
+              });
+            }
+            
+            changesHtml += `<div style="margin-bottom: 6px; padding: 4px; border-bottom: 1px dashed var(--border-color); line-height: 1.4;">
+              <strong>${item.nombre || 'Colaborador'}</strong> (Cód: ${item.id})<br>
+              <span style="font-size: 0.9em; color: var(--text-muted);">${details.join(" | ") || 'Sin modificaciones numéricas'}</span>
+            </div>`;
+          });
+
           confirmBox.innerHTML = `
             <div style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-top: 10px;">
-              <strong>La IA propone los siguientes cambios en la pre-nómina:</strong>
-              <pre style="font-size: 0.85em; background: var(--bg-body); padding: 0.5rem; border-radius: 4px; overflow-x: auto;">${JSON.stringify(data.proposed_changes, null, 2)}</pre>
-              <button class="btn btn-primary" onclick='applyAIProposedChanges(${changesJson})'>Confirmar y Aplicar</button>
+              <strong style="display: block; margin-bottom: 8px; color: var(--primary);">La IA propone los siguientes cambios en la prenómina:</strong>
+              <div style="font-size: 0.95em; background: var(--bg-body); padding: 0.75rem; border-radius: 6px; margin-bottom: 12px; max-height: 200px; overflow-y: auto;">
+                ${changesHtml}
+              </div>
+              <button class="btn btn-primary" style="width: 100%;" onclick='applyAIProposedChanges(${changesJson})'>Confirmar y Aplicar</button>
             </div>
           `;
           if (messagesDiv) {
