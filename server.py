@@ -3130,18 +3130,19 @@ Normativa y Reglas de Nómina aplicables:
 {rules_to_use}
 
 Deducciones de Ley Estimadas (para tu explicación contable detallada):
-- IMSS Obrero Quincenal: Calcula una estimación del 2.375% sobre el Salario Diario Integrado (SDI) multiplicado por los días laborados reales en la quincena: `SDI * 2.375% * (15 - faltas)`.
+- IMSS Obrero Quincenal: Calcula una estimación del 2.375% sobre el Salario Diario Integrado (SDI) multiplicado por los días laborados reales en la quincena: `SDI * 2.375% * (15 - faltas)` (solo cuenta las faltas del periodo actual).
 - ISR Quincenal Estimado: Utiliza esta estimación rápida sobre el sueldo bruto quincenal (Sueldo Bruto Mensual / 2):
   * Si la quincena es menor o igual a $3,700: aplica 6% de ISR.
   * Si la quincena es entre $3,701 y $7,000: aplica 10% de ISR.
   * Si la quincena es entre $7,001 y $12,000: aplica 16% de ISR.
   * Si la quincena es mayor a $12,000: aplica 20% de ISR.
-- Siempre incluye el desglose estimado de estas deducciones fiscales de ley (ISR e IMSS) y el Neto quincenal estimado resultante en tu explicación contable.
+- Siempre incluye el desglose estimado de estas deducciones fiscales de ley (ISR e IMSS) y el Neto quincenal estimado resultante en tu explicación contable. (Si la incidencia registrada es de una fecha pasada fuera del periodo de pago activo, aclara que no afectará el cálculo neto ni el pago de la quincena en curso).
 
 Instrucciones Especiales de Lógica Contable:
 - Condonaciones o Justificaciones: Si el usuario te indica que una falta está justificada o condonada (ej. "trajo incapacidad", "perdónale la falta", "págale completo"), debes generar un JSON de cambios estableciendo `"forzar_asistencia": "SI"`, `"forzar_vales": "SI"` y `"forzar_puntualidad": "SI"` (según corresponda), y escribir el motivo en `"observaciones"` (ej. "Incapacidad médica justificante / Faltas condonadas").
 - Planes de Amortización de Préstamos: Si el usuario te indica registrar un préstamo de $M para pagarse en N quincenas, divide el monto (M / N) y genera un JSON con el campo de deducción correspondiente (ej. `"descuento_adicional"`) establecido a ese monto quincenal (redondeado a centavos). Escribe en `"observaciones"` el desglose descriptivo de la amortización, ej. "Amortización de préstamo quincena 1 de N (monto quincenal: $Q, total: $M)".
-- Registro de Vacaciones Pasadas (Históricas): Si el usuario indica que un colaborador ya tomó N días de vacaciones antes del uso de este sistema (ej. "ya tomó 3 días de vacaciones en enero", "descuenta 3 días de vacaciones previas a Juan"), debes generar un JSON estableciendo `"vacaciones": N`, `"date": "YYYY-MM-DD"` (escribe la fecha exacta mencionada, o una fecha representativa del pasado dentro de su ciclo de aniversario actual, por ejemplo en enero u otro mes según corresponda), y `"observaciones": "Registro histórico: Vacaciones tomadas previas al uso del sistema"`. El sistema acumulará y descontará automáticamente del derecho de vacaciones anuales.
+- Registro de Vacaciones Pasadas (Históricas): Si el usuario indica que un colaborador ya tomó N días de vacaciones antes del uso de este sistema (ej. "ya tomó 3 días de vacaciones en enero", "descuenta 3 días de vacaciones previas a Juan"), debes generar un JSON estableciendo `"vacaciones": N`, `"date": "YYYY-MM-DD"` (escribe la fecha exacta mencionada, o una fecha representativa del pasado dentro de su ciclo de aniversario actual, por ejemplo en enero u otro mes según corresponda), y `"observaciones": "Registro histórico: Vacaciones tomadas previas al uso del sistema"`. El sistema acumulará estas vacaciones para descontarlas del derecho anual disponible (vacaciones restantes), pero NUNCA debes restar días de nómina ni aplicar deducciones/descuentos económicos en la quincena actual por estas incidencias pasadas.
+- Incidencias de Fechas Pasadas (Generales): Cualquier incidencia (vacaciones, faltas, retardos) cuya fecha (`"date"`) esté fuera del período activo de la nómina actual se registra puramente como historial en la pestaña de incidencias y para actualizar saldos de vacaciones. NUNCA debes aplicar descuentos de sueldo, deducciones económicas ni reducciones de días laborados de la quincena actual por incidencias de periodos pasados. En tu explicación, confirma que se registra históricamente en el sistema sin alterar la nómina actual.
 
 Instrucciones Generales:
 1. Explica el desglose del cálculo del colaborador de forma clara, profesional y paso a paso usando Markdown.
