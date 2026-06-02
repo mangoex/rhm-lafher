@@ -987,35 +987,43 @@ def get_field_letter(schema, field_name):
 def get_ai_api_key(provider="google"):
     """Read AI API key from: 1) secrets.json, 2) env var. Never from schema.json."""
     secrets = load_secrets()
+    key = ""
     if provider == "openrouter":
         if "openrouter_api_key" in secrets and secrets["openrouter_api_key"].strip():
-            return secrets["openrouter_api_key"].strip()
-        env_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-        if env_key:
-            return env_key
-        # Check generic slots only if they look like OpenRouter keys (usually start with sk-or-)
-        generic_sec = secrets.get("ai_api_key", "").strip()
-        if generic_sec.startswith("sk-or-"):
-            return generic_sec
-        generic_env = os.environ.get("AI_API_KEY", "").strip()
-        if generic_env.startswith("sk-or-"):
-            return generic_env
-        return ""  # Do not fallback to Google keys
+            key = secrets["openrouter_api_key"].strip()
+        else:
+            env_key = os.environ.get("OPENROUTER_API_KEY", "").strip() or os.environ.get("OPEN_ROUTER_API_KEY", "").strip()
+            if env_key:
+                key = env_key
+            else:
+                # Check generic slots only if they look like OpenRouter keys (usually start with sk-or-)
+                generic_sec = secrets.get("ai_api_key", "").strip()
+                if generic_sec.startswith("sk-or-"):
+                    key = generic_sec
+                else:
+                    generic_env = os.environ.get("AI_API_KEY", "").strip()
+                    if generic_env.startswith("sk-or-"):
+                        key = generic_env
         
     else:  # Google Gemini
         if "google_api_key" in secrets and secrets["google_api_key"].strip():
-            return secrets["google_api_key"].strip()
-        env_key = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
-        if env_key:
-            return env_key
-        # Check generic slots only if they do NOT look like OpenRouter keys
-        generic_sec = secrets.get("ai_api_key", "").strip()
-        if generic_sec and not generic_sec.startswith("sk-or-"):
-            return generic_sec
-        generic_env = os.environ.get("AI_API_KEY", "").strip()
-        if generic_env and not generic_env.startswith("sk-or-"):
-            return generic_env
-        return ""  # Do not fallback to OpenRouter keys
+            key = secrets["google_api_key"].strip()
+        else:
+            env_key = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+            if env_key:
+                key = env_key
+            else:
+                # Check generic slots only if they do NOT look like OpenRouter keys
+                generic_sec = secrets.get("ai_api_key", "").strip()
+                if generic_sec and not generic_sec.startswith("sk-or-"):
+                    key = generic_sec
+                else:
+                    generic_env = os.environ.get("AI_API_KEY", "").strip()
+                    if generic_env and not generic_env.startswith("sk-or-"):
+                        key = generic_env
+
+    return key.strip().strip("'\"")
+
 
 
 def get_ai_config(schema):
