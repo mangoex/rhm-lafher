@@ -96,18 +96,20 @@ El servidor backend inyecta fórmulas nativas de Excel en las celdas correspondi
 
 ---
 
-## ☁️ Flujo de Respaldo Quincenal en GitHub
+## ☁️ Flujo de Actualización del Código en GitHub
 
-Para realizar un respaldo seguro de tu prenómina e historial en la nube al finalizar un periodo quincenal:
+> [!CAUTION]
+> **Por seguridad y protección de datos personales (PII)**, el archivo Excel de la nómina (`Nomina ciega.xlsx`) **NUNCA** se sube a GitHub. Está explícitamente ignorado. Tus respaldos de nómina deben hacerse localmente o en un servicio seguro (OneDrive, Google Drive, SharePoint).
 
-1. Asegúrate de cerrar el archivo Excel en tu computadora.
-2. En la terminal del proyecto, ejecuta:
+Para actualizar el código fuente en la nube (GitHub) si realizas mejoras al sistema:
+
+1. En la terminal del proyecto, ejecuta:
    ```bash
-   # 1. Agregar todos los cambios realizados
+   # 1. Agregar todos los cambios de código realizados
    git add .
    
    # 2. Guardar un punto de restauración con un mensaje
-   git commit -m "Respaldo quincena: 1ra Quincena de Mayo 2026"
+   git commit -m "Actualización del sistema: [descripción breve]"
    
    # 3. Subir los cambios a GitHub
    git push origin main

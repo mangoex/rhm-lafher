@@ -2,16 +2,22 @@
 ~$*.xlsx
 ~$*.xls
 
+# Ignorar base de datos de nómina en Excel (Datos sensibles)
+*.xlsx
+*.xls
+
 # Ignorar archivos de registro y respaldos
 *.log
 *.bak
+*.backup
 
-# Carpetas de desarrollo y dependencias (si aplica)
+# Carpetas de desarrollo y dependencias
 node_modules/
-.env
-secrets.json
+__pycache__/
+*.pyc
 
 # Archivos específicos de entorno
-*.backup
+.env
+secrets.json
 AGENTS.md
 users.json
