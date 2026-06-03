@@ -763,8 +763,10 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                         
                     if fi_col:
                         if not baja_dt:
-                            fi = 1 + (15/365) + ((vac_derecho * 0.25) / 365)
-                            ws.cell(row=row, column=fi_col).value = round(fi, 4)
+                            aguinaldo_cell_abs = ensure_absolute_cell(schema.get("aguinaldo_cell", "J3"))
+                            prima_cell_abs = ensure_absolute_cell(schema.get("prima_cell", "H3"))
+                            vac_tot_letter = get_field_letter(schema, "vacaciones_totales")
+                            ws.cell(row=row, column=fi_col).value = f"=1 + ({aguinaldo_cell_abs}/365) + (({vac_tot_letter}{row} * IF({prima_cell_abs}>1, {prima_cell_abs}/100, {prima_cell_abs})) / 365)"
                         else:
                             ws.cell(row=row, column=fi_col).value = 0.0
                 else:
@@ -1955,6 +1957,8 @@ def inject_formulas_dynamically(ws, row, schema):
     vales_pct_cell = ensure_absolute_cell(schema.get("vales_pct_cell", "P3"))
     dias_mes_cell = ensure_absolute_cell(schema.get("dias_mes_cell", "N3"))
     fa_pct_cell = ensure_absolute_cell(schema.get("fa_pct_cell", "L3"))
+    aguinaldo_cell = ensure_absolute_cell(schema.get("aguinaldo_cell", "J3"))
+    prima_cell = ensure_absolute_cell(schema.get("prima_cell", "H3"))
     
     period_str = schema.get("period", "16 al 30 Abr 2026")
     try:
@@ -1977,8 +1981,9 @@ def inject_formulas_dynamically(ws, row, schema):
         val_str = str(fa_activo_val).strip().upper()
         if val_str in ["SI", "SÍ", "TRUE", "1"]:
             is_fa_activo = True
-
+  
     formulas = {
+        "factor_integracion": f"=1 + ({aguinaldo_cell}/365) + (({L('vacaciones_totales')}{row} * IF({prima_cell}>1, {prima_cell}/100, {prima_cell})) / 365)",
         "sdi": f"={L('salario_diario')}{row}*{L('factor_integracion')}{row}",
         "sueldo_nominal": f"={L('salario_diario')}{row}*{dias_mes_cell}",
         "puntualidad": f"={L('sdi')}{row}*0.1*{dias_mes_cell}",
