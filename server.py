@@ -45,6 +45,16 @@ else:
             
     SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
 
+# Support cloud persistent storage volume via environment variable
+env_config_dir = os.environ.get("RHM_DATA_DIR")
+if env_config_dir:
+    CONFIG_DIR = os.path.abspath(env_config_dir)
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+    except Exception as e:
+        print(f"Error creating RHM_DATA_DIR: {e}")
+    SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
+
 import shutil
 import hashlib
 import secrets
