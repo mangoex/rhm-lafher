@@ -147,6 +147,161 @@ document.addEventListener("DOMContentLoaded", () => {
     filterEmployeeIds: null
   };
 
+  function isPeriodStrMonthly(periodStr) {
+    if (!periodStr) return false;
+    const match = periodStr.match(/(\d+)\s+al\s+(\d+)\s+(\w+)\s+(\d{4})/i);
+    if (match) {
+      const startDay = parseInt(match[1]);
+      const endDay = parseInt(match[2]);
+      return startDay === 1 && endDay > 15;
+    }
+    return false;
+  }
+
+  function getPeriodDaysCount(periodStr) {
+    if (!periodStr) return 15;
+    const match = periodStr.match(/(\d+)\s+al\s+(\d+)\s+(\w+)\s+(\d{4})/i);
+    if (match) {
+      const startDay = parseInt(match[1]);
+      const endDay = parseInt(match[2]);
+      return endDay - startDay + 1;
+    }
+    return 15;
+  }
+
+  function getDaysInMonth(year, monthIndex) {
+    return new Date(year, monthIndex + 1, 0).getDate();
+  }
+
+  function populatePeriodDropdown(type, activePeriod) {
+    const periodSelect = document.getElementById("period-select");
+    if (!periodSelect) return;
+    
+    let year = 2026;
+    if (activePeriod) {
+      const match = activePeriod.match(/\d{4}/);
+      if (match) year = parseInt(match[0]);
+    }
+    
+    const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    periodSelect.innerHTML = "";
+    
+    if (type === "mensual") {
+      months.forEach((m, idx) => {
+        const lastDay = getDaysInMonth(year, idx);
+        const val = `1 al ${lastDay} ${m} ${year}`;
+        const option = document.createElement("option");
+        option.value = val;
+        option.textContent = val;
+        periodSelect.appendChild(option);
+      });
+    } else {
+      months.forEach((m, idx) => {
+        const val1 = `1 al 15 ${m} ${year}`;
+        const option1 = document.createElement("option");
+        option1.value = val1;
+        option1.textContent = val1;
+        periodSelect.appendChild(option1);
+        
+        const lastDay = getDaysInMonth(year, idx);
+        const val2 = `16 al ${lastDay} ${m} ${year}`;
+        const option2 = document.createElement("option");
+        option2.value = val2;
+        option2.textContent = val2;
+        periodSelect.appendChild(option2);
+      });
+    }
+    
+    let found = false;
+    for (let i = 0; i < periodSelect.options.length; i++) {
+      if (periodSelect.options[i].value === activePeriod) {
+        periodSelect.value = activePeriod;
+        found = true;
+        break;
+      }
+    }
+    
+    if (!found && periodSelect.options.length > 0) {
+      let monthStr = "";
+      if (activePeriod) {
+        const parts = activePeriod.split(" ");
+        if (parts.length >= 4) monthStr = parts[2];
+      }
+      
+      let matchedIdx = 0;
+      if (monthStr) {
+        for (let i = 0; i < periodSelect.options.length; i++) {
+          if (periodSelect.options[i].value.includes(monthStr)) {
+            matchedIdx = i;
+            break;
+          }
+        }
+      }
+      periodSelect.selectedIndex = matchedIdx;
+      state.period = periodSelect.value;
+    }
+  }
+
+  function saveSelectedPeriod(newPeriod) {
+    return fetch("/api/period", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ period: newPeriod })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        showToast(data.error, "error");
+        throw new Error(data.error);
+      }
+      showToast("Periodo actualizado con éxito: " + newPeriod, "success");
+      return loadState();
+    })
+    .catch(err => {
+      console.error("Error saving period:", err);
+      showToast("Error al guardar el periodo", "error");
+    });
+  }
+
+  function initPeriodControls() {
+    const btnQuincenal = document.getElementById("btn-period-quincenal");
+    const btnMensual = document.getElementById("btn-period-mensual");
+    const periodSelect = document.getElementById("period-select");
+    
+    if (btnQuincenal && btnMensual) {
+      const newQuincenal = btnQuincenal.cloneNode(true);
+      const newMensual = btnMensual.cloneNode(true);
+      btnQuincenal.parentNode.replaceChild(newQuincenal, btnQuincenal);
+      btnMensual.parentNode.replaceChild(newMensual, btnMensual);
+
+      newQuincenal.addEventListener("click", () => {
+        if (newQuincenal.classList.contains("active")) return;
+        newQuincenal.classList.add("active");
+        newMensual.classList.remove("active");
+        
+        populatePeriodDropdown("quincenal", state.period);
+        saveSelectedPeriod(periodSelect.value);
+      });
+      
+      newMensual.addEventListener("click", () => {
+        if (newMensual.classList.contains("active")) return;
+        newMensual.classList.add("active");
+        newQuincenal.classList.remove("active");
+        
+        populatePeriodDropdown("mensual", state.period);
+        saveSelectedPeriod(periodSelect.value);
+      });
+    }
+    
+    if (periodSelect) {
+      const newPeriodSelect = periodSelect.cloneNode(true);
+      periodSelect.parentNode.replaceChild(newPeriodSelect, periodSelect);
+      newPeriodSelect.addEventListener("change", (e) => {
+        saveSelectedPeriod(e.target.value);
+      });
+    }
+  }
+
   // 2. Load State from Python API
   function loadState() {
     const dbIndicator = document.getElementById("db-status-indicator");
@@ -247,7 +402,20 @@ document.addEventListener("DOMContentLoaded", () => {
         
         const periodSelect = document.getElementById("period-select");
         if (periodSelect) {
-          periodSelect.value = state.period;
+          const isMonthly = isPeriodStrMonthly(state.period);
+          const btnQuincenal = document.getElementById("btn-period-quincenal");
+          const btnMensual = document.getElementById("btn-period-mensual");
+          if (btnQuincenal && btnMensual) {
+            if (isMonthly) {
+              btnQuincenal.classList.remove("active");
+              btnMensual.classList.add("active");
+            } else {
+              btnQuincenal.classList.add("active");
+              btnMensual.classList.remove("active");
+            }
+          }
+          populatePeriodDropdown(isMonthly ? "mensual" : "quincenal", state.period);
+          initPeriodControls();
         }
 
         renderActiveView();
@@ -432,6 +600,9 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Calculate vales de despensa
     let valesDespensa = 0;
+    const isMonthly = isPeriodStrMonthly(state.period);
+    const diasPeriodo = getPeriodDaysCount(state.period);
+    
     if (emp.salario_diario && !isBaja) {
       if (emp.ajuste_vales !== undefined && emp.ajuste_vales !== null && emp.ajuste_vales !== "") {
         valesDespensa = parseFloat(emp.ajuste_vales) || 0.0;
@@ -439,7 +610,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const baseVales = cfg.uma * (cfg.valesPct / 100) * cfg.diasMes;
         const effectiveFaltas = emp.forzar_vales === "SI" ? 0 : (emp.faltas || 0);
         if (effectiveFaltas > 0) {
-          valesDespensa = (baseVales / 15) * (15 - effectiveFaltas);
+          const divisorVales = isMonthly ? diasPeriodo : 15;
+          valesDespensa = (baseVales / divisorVales) * (divisorVales - effectiveFaltas);
         } else {
           valesDespensa = baseVales;
         }
@@ -471,11 +643,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     const sueldoBrutoMensual = percepcionSueldos + totalOtros;
-    const sueldoBrutoQuincenalNormal = sueldoBrutoMensual / 2;
+    const sueldoBrutoQuincenalNormal = isMonthly ? sueldoBrutoMensual : (sueldoBrutoMensual / 2);
     
     // Absences deduction impact
     const faltas = emp.faltas || 0;
-    const descuentoFaltas = (sueldoBrutoQuincenalNormal / 15) * faltas;
+    const divisorFaltas = isMonthly ? diasPeriodo : 15;
+    const descuentoFaltas = (sueldoBrutoQuincenalNormal / divisorFaltas) * faltas;
     
     // Dynamic Additional Deductions sum
     let descuentoAdicional = 0;
@@ -487,8 +660,10 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
     
-    // Final Net Quincenal matches Excel formula (AG6 = AF6/2/15*(15-Faltas) = (AB6-AE6)/2/15*(15-Faltas))
-    const sueldoNetoQuincenal = Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 / 15 * (15 - faltas));
+    // Final Net Period matches Excel formula
+    const sueldoNetoQuincenal = isMonthly 
+      ? Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / diasPeriodo * (diasPeriodo - faltas))
+      : Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 / 15 * (15 - faltas));
     
     return {
       antiguedad: yearsCompleted,

@@ -1593,3 +1593,36 @@ td.has-formula:hover::after {
 .schema-formula-input-group input:focus {
   border-color: var(--primary) !important;
 }
+
+/* Period Type Toggle (Segment Control) */
+.period-type-toggle {
+  display: inline-flex;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-bg);
+  padding: 2px;
+}
+
+.period-toggle-btn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.period-toggle-btn:hover {
+  color: var(--text-main);
+}
+
+.period-toggle-btn.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+

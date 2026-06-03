@@ -469,6 +469,8 @@ def recompile_active_period_incidences(wb, schema):
     
     period_str = schema.get("period", "16 al 30 Abr 2026")
     start_date, end_date = parse_period_dates(period_str)
+    dias_periodo = (end_date - start_date).days + 1
+    is_monthly = dias_periodo > 16
     
     agg = {}
     all_incidences = []
@@ -696,7 +698,7 @@ def recompile_active_period_incidences(wb, schema):
             if observaciones_col:
                 ws.cell(row=row, column=observaciones_col).value = None
             if neto_quincenal_col and bruto_mensual_neto_letter:
-                ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2"
+                ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
             
             if puntualidad_col and sdi_letter:
                 ws.cell(row=row, column=puntualidad_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
@@ -730,10 +732,14 @@ def recompile_active_period_incidences(wb, schema):
                 
                 if neto_quincenal_col and bruto_mensual_neto_letter:
                     if faltas > 0:
-                        dias_laborados = 15 - faltas
-                        ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2/15*{dias_laborados}"
+                        if is_monthly:
+                            dias_laborados = dias_periodo - faltas
+                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/{dias_periodo}*{dias_laborados}"
+                        else:
+                            dias_laborados = 15 - faltas
+                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2/15*{dias_laborados}"
                     else:
-                        ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2"
+                        ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
                         
                 if descuento_col and desc > 0:
                     ws.cell(row=row, column=descuento_col).value = desc
@@ -760,7 +766,10 @@ def recompile_active_period_incidences(wb, schema):
                     else:
                         effective_faltas = 0 if forzar_val else faltas
                         if effective_faltas > 0:
-                            ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}/15*(15-{effective_faltas})"
+                            if is_monthly:
+                                ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}/{dias_periodo}*({dias_periodo}-{effective_faltas})"
+                            else:
+                                ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}/15*(15-{effective_faltas})"
                         else:
                             ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}"
                             
@@ -1681,6 +1690,13 @@ def inject_formulas_dynamically(ws, row, schema):
     dias_mes_cell = ensure_absolute_cell(schema.get("dias_mes_cell", "N3"))
     fa_pct_cell = ensure_absolute_cell(schema.get("fa_pct_cell", "L3"))
     
+    period_str = schema.get("period", "16 al 30 Abr 2026")
+    try:
+        start_date, end_date = parse_period_dates(period_str)
+        is_monthly = (end_date - start_date).days > 16
+    except:
+        is_monthly = False
+        
     # Build core formulas dynamically based on letter configurations
     # Subtract all active deduction columns from bruto_mensual to get bruto_mensual_neto
     ded_fields = [col["field"] for col in schema.get("columns", []) if col.get("category") == "deduction"]
@@ -1697,7 +1713,7 @@ def inject_formulas_dynamically(ws, row, schema):
         "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",MIN({L("sueldo_nominal")}{row}*({fa_pct_cell}/100),1.3*{uma_cell}*{dias_mes_cell}),0)',
         "percepcion_sueldos": f"=SUM({L('sueldo_nominal')}{row}:{L('fondo_ahorro')}{row})",
         "bruto_mensual": f"=SUM({L('percepcion_sueldos')}{row}:{L('deuda_carro')}{row})",
-        "bruto_quincenal": f"={L('bruto_mensual')}{row}/2",
+        "bruto_quincenal": f"={L('bruto_mensual')}{row}" if is_monthly else f"={L('bruto_mensual')}{row}/2",
         "bruto_mensual_neto": f"={L('bruto_mensual')}{row}{ded_sub_str}",
         "descuento_quincenal_acumulado": f"={L('bruto_quincenal')}{row}-{L('neto_quincenal')}{row}",
         "vacaciones_restantes": f"={L('vacaciones_totales')}{row}-{L('vacaciones_tomadas')}{row}"
@@ -1749,7 +1765,19 @@ def identify_critical_headers(headers):
                 
     return nombre_idx, sdi_idx
 
-def validate_schema_formulas_locally(columns):
+def validate_schema_formulas_locally(columns, schema=None):
+    if schema is None:
+        schema = load_schema()
+        
+    period_str = schema.get("period", "16 al 30 Abr 2026")
+    try:
+        start_date, end_date = parse_period_dates(period_str)
+        is_monthly = (end_date - start_date).days > 16
+        dias_periodo = (end_date - start_date).days + 1
+    except:
+        is_monthly = False
+        dias_periodo = 15
+
     tot_letter = "AL"
     tom_letter = "AM"
     faltas_letter = "AH"
@@ -1812,20 +1840,20 @@ def validate_schema_formulas_locally(columns):
                 col["recommended_formula"] = expected
                 
         elif f == "sueldo_bruto_quincenal_base":
-            expected = f"={bruto_mensual_letter}6/2"
+            expected = f"={bruto_mensual_letter}6" if is_monthly else f"={bruto_mensual_letter}6/2"
             if formula:
                 formula_clean = str(formula).upper().replace(" ", "")
                 expected_clean = expected.upper().replace(" ", "")
                 if formula_clean == expected_clean:
                     col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de bruto quincenal base (mensual dividido entre 2)."
+                    col["reason"] = f"Fórmula correcta de bruto {'mensual' if is_monthly else 'quincenal'} base."
                 else:
                     col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. Se esperaba dividir el bruto mensual entre 2: '{expected}'"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba: '{expected}'"
                     col["recommended_formula"] = expected
             else:
                 col["status"] = "recommended"
-                col["reason"] = "Se recomienda dividir el sueldo bruto mensual entre 2."
+                col["reason"] = f"Se recomienda referenciar el sueldo bruto {'mensual' if is_monthly else 'dividido entre 2'}."
                 col["recommended_formula"] = expected
                 
         elif f == "sueldo_bruto_mensual_2":
@@ -1851,24 +1879,41 @@ def validate_schema_formulas_locally(columns):
                 col["recommended_formula"] = expected
                 
         elif f == "sueldo_bruto_quincenal_2":
-            expected = f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
+            expected = f"={bruto_mensual_2_letter}6" if is_monthly else f"={bruto_mensual_2_letter}6/2"
             if formula:
                 formula_clean = str(formula).upper().replace(" ", "")
                 expected_clean = expected.upper().replace(" ", "")
-                if formula_clean == expected_clean or f"15-{faltas_letter}6" in formula_clean:
+                
+                # Check for correct monthly absence deduction formula
+                is_correct_monthly = is_monthly and (
+                    formula_clean == f"={bruto_mensual_2_letter}6/{dias_periodo}*({dias_periodo}-{faltas_letter}6)" or 
+                    f"{dias_periodo}-{faltas_letter}6" in formula_clean
+                )
+                # Check for correct quincenal formula
+                is_correct_quincenal = not is_monthly and (
+                    formula_clean == f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)" or 
+                    f"15-{faltas_letter}6" in formula_clean
+                )
+                
+                if formula_clean == expected_clean:
                     col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de neto quincenal (descuenta proporcionalmente las faltas)."
+                    col["reason"] = f"Fórmula correcta de neto {'mensual' if is_monthly else 'quincenal'} (sin faltas)."
+                elif is_correct_monthly or is_correct_quincenal:
+                    col["status"] = "correct"
+                    col["reason"] = f"Fórmula correcta de neto {'mensual' if is_monthly else 'quincenal'} (descuenta proporcionalmente las faltas)."
                 elif "FALTAS" in formula_clean or faltas_letter in formula_clean:
                     col["status"] = "correct"
-                    col["reason"] = "Fórmula de neto quincenal con descuento de faltas validada."
+                    col["reason"] = f"Fórmula de neto {'mensual' if is_monthly else 'quincenal'} con descuento de faltas validada."
                 else:
                     col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. No descuenta las faltas del periodo. Se recomienda: '{expected}'"
-                    col["recommended_formula"] = expected
+                    rec_formula = f"={bruto_mensual_2_letter}6/{dias_periodo}*({dias_periodo}-{faltas_letter}6)" if is_monthly else f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
+                    col["reason"] = f"Fórmula incorrecta. No descuenta las faltas del periodo. Se recomienda: '{rec_formula}'"
+                    col["recommended_formula"] = rec_formula
             else:
                 col["status"] = "recommended"
-                col["reason"] = "Se recomienda calcular el neto quincenal descontando las faltas del periodo."
-                col["recommended_formula"] = expected
+                rec_formula = f"={bruto_mensual_2_letter}6/{dias_periodo}*({dias_periodo}-{faltas_letter}6)" if is_monthly else f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
+                col["reason"] = f"Se recomienda calcular el neto {'mensual' if is_monthly else 'quincenal'} descontando las faltas del periodo."
+                col["recommended_formula"] = rec_formula
                 
         elif cat == "calculated":
             if formula:
@@ -2688,7 +2733,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 
             if not ai_cols:
                 # Fallback to local deterministic validation
-                final_columns = validate_schema_formulas_locally(final_columns)
+                final_columns = validate_schema_formulas_locally(final_columns, schema=schema)
                 
             correct_count = sum(1 for c in final_columns if c.get("status") == "correct")
             incorrect_count = sum(1 for c in final_columns if c.get("status") == "incorrect")
@@ -3677,11 +3722,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     neto_quincenal_col = get_field_index(schema, "neto_quincenal")
                     if neto_quincenal_col:
                         formula_ag = sheet_f.cell(row=row, column=neto_quincenal_col).value
-                        if isinstance(formula_ag, str) and "/15*" in formula_ag:
+                        if isinstance(formula_ag, str) and "*" in formula_ag:
                             try:
                                 parts = formula_ag.split("*")
                                 days_worked = int(parts[-1])
-                                emp_faltas = 15 - days_worked
+                                import re
+                                denom_m = re.search(r"/(\d+)\s*\*", formula_ag)
+                                denom = int(denom_m.group(1)) if denom_m else 15
+                                emp_faltas = denom - days_worked
                             except:
                                 pass
                 emp_data["faltas"] = emp_faltas

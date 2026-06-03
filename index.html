@@ -42,33 +42,14 @@
       <div id="db-status-indicator" class="badge success" style="margin-right: 0.5rem; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; padding: 0;" title="Base de Datos Conectada">
         <i data-lucide="database" style="width: 16px; height: 16px;"></i>
       </div>
-      <div id="period-container" style="display: flex; align-items: center; gap: 6px; margin-right: 0.5rem;">
+      <div id="period-container" style="display: flex; align-items: center; gap: 8px; margin-right: 0.5rem;">
+        <div class="period-type-toggle" id="period-type-toggle">
+          <button type="button" id="btn-period-quincenal" class="period-toggle-btn active">Quincenal</button>
+          <button type="button" id="btn-period-mensual" class="period-toggle-btn">Mensual</button>
+        </div>
         <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Periodo:</span>
         <select id="period-select" style="border: 1px solid var(--panel-border); background: var(--panel-bg); color: var(--text-color); cursor: pointer; padding: 4px 8px; font-size: 0.85rem; font-weight: 600; border-radius: var(--border-radius); outline: none;">
-          <option value="1 al 15 Ene 2026">1 al 15 Ene 2026</option>
-          <option value="16 al 31 Ene 2026">16 al 31 Ene 2026</option>
-          <option value="1 al 15 Feb 2026">1 al 15 Feb 2026</option>
-          <option value="16 al 28 Feb 2026">16 al 28 Feb 2026</option>
-          <option value="1 al 15 Mar 2026">1 al 15 Mar 2026</option>
-          <option value="16 al 31 Mar 2026">16 al 31 Mar 2026</option>
-          <option value="1 al 15 Abr 2026">1 al 15 Abr 2026</option>
-          <option value="16 al 30 Abr 2026" selected>16 al 30 Abr 2026</option>
-          <option value="1 al 15 May 2026">1 al 15 May 2026</option>
-          <option value="16 al 31 May 2026">16 al 31 May 2026</option>
-          <option value="1 al 15 Jun 2026">1 al 15 Jun 2026</option>
-          <option value="16 al 30 Jun 2026">16 al 30 Jun 2026</option>
-          <option value="1 al 15 Jul 2026">1 al 15 Jul 2026</option>
-          <option value="16 al 31 Jul 2026">16 al 31 Jul 2026</option>
-          <option value="1 al 15 Ago 2026">1 al 15 Ago 2026</option>
-          <option value="16 al 31 Ago 2026">16 al 31 Ago 2026</option>
-          <option value="1 al 15 Sep 2026">1 al 15 Sep 2026</option>
-          <option value="16 al 30 Sep 2026">16 al 30 Sep 2026</option>
-          <option value="1 al 15 Oct 2026">1 al 15 Oct 2026</option>
-          <option value="16 al 31 Oct 2026">16 al 31 Oct 2026</option>
-          <option value="1 al 15 Nov 2026">1 al 15 Nov 2026</option>
-          <option value="16 al 30 Nov 2026">16 al 30 Nov 2026</option>
-          <option value="1 al 15 Dic 2026">1 al 15 Dic 2026</option>
-          <option value="16 al 31 Dic 2026">16 al 31 Dic 2026</option>
+          <!-- Se poblará dinámicamente -->
         </select>
       </div>
       <button id="theme-toggle" class="theme-toggle" title="Cambiar Tema">
