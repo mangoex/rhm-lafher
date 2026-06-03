@@ -9,7 +9,7 @@ from datetime import datetime
 import traceback
 import os
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", 8000))
 import sys
 
 # Resolve paths for PyInstaller standalone executables
@@ -48,12 +48,24 @@ else:
 # Support cloud persistent storage volume via environment variable
 env_config_dir = os.environ.get("RHM_DATA_DIR")
 if env_config_dir:
-    CONFIG_DIR = os.path.abspath(env_config_dir)
+    proposed_dir = os.path.abspath(env_config_dir)
+    is_writable = False
     try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+        os.makedirs(proposed_dir, exist_ok=True)
+        # Test write capability in proposed directory
+        test_file = os.path.join(proposed_dir, ".rhm_write_test")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        is_writable = True
     except Exception as e:
-        print(f"Error creating RHM_DATA_DIR: {e}")
-    SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
+        print(f"Error checking writability of RHM_DATA_DIR ({proposed_dir}): {e}")
+        
+    if is_writable:
+        CONFIG_DIR = proposed_dir
+        SCHEMA_PATH = os.path.join(CONFIG_DIR, "schema.json")
+    else:
+        print(f"RHM_DATA_DIR ({proposed_dir}) is not writable. Falling back to default CONFIG_DIR: {CONFIG_DIR}")
 
 import shutil
 import hashlib
@@ -824,26 +836,58 @@ def save_schema(schema):
     except Exception as e:
         print("Error saving schema.json:", e)
 
+def is_path_writable(path):
+    if not path:
+        return False
+    try:
+        dir_path = os.path.dirname(os.path.abspath(path))
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        # Test write capability
+        test_file = os.path.join(dir_path, f".write_test_{os.path.basename(path)}")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        return True
+    except Exception:
+        return False
+
 def get_excel_path():
     try:
         schema = load_schema()
         db_path = schema.get("db_path", "")
         if db_path:
             if os.path.isabs(db_path):
-                return db_path
+                if is_path_writable(db_path):
+                    return db_path
+                else:
+                    fallback_path = os.path.abspath(os.path.join(CONFIG_DIR, os.path.basename(db_path)))
+                    print(f"Database path '{db_path}' is not writable. Falling back to '{fallback_path}'")
+                    return fallback_path
             # Check relative to CONFIG_DIR or BASE_DIR
             opt1 = os.path.abspath(os.path.join(CONFIG_DIR, db_path))
-            if os.path.exists(opt1):
+            if is_path_writable(opt1):
                 return opt1
             if CONFIG_DIR != BASE_DIR:
-                return opt1
-            return os.path.abspath(os.path.join(BASE_DIR, db_path))
+                if is_path_writable(opt1):
+                    return opt1
+            opt2 = os.path.abspath(os.path.join(BASE_DIR, db_path))
+            if is_path_writable(opt2):
+                return opt2
     except Exception as e:
         print("Error getting Excel path from schema:", e)
     
+    filename = "Nomina ciega.xlsx"
     if getattr(sys, 'frozen', False) or CONFIG_DIR != BASE_DIR:
-        return os.path.abspath(os.path.join(CONFIG_DIR, "Nomina ciega.xlsx"))
-    return os.path.abspath(os.path.join(BASE_DIR, "Nomina ciega.xlsx"))
+        fallback_path = os.path.abspath(os.path.join(CONFIG_DIR, filename))
+    else:
+        fallback_path = os.path.abspath(os.path.join(BASE_DIR, filename))
+        
+    if not is_path_writable(fallback_path):
+        fallback_path = os.path.abspath(os.path.join("/tmp", filename))
+        
+    return fallback_path
+
 
 def find_headers_row(ws):
     # Scan the first 15 rows to find the row containing header cells
