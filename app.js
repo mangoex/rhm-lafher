@@ -3199,7 +3199,51 @@ document.addEventListener("DOMContentLoaded", () => {
       })
       .catch(err => {
         showToast(err.message, "error");
-        modal.style.display = "none";
+        
+        const statusSummary = document.getElementById("schema-status-summary");
+        const columnsList = document.getElementById("schema-columns-list");
+        const confirmBtn = document.getElementById("schema-confirm-btn");
+        
+        if (statusSummary) {
+          statusSummary.className = "alert-status danger";
+          statusSummary.style.background = "rgba(239, 68, 68, 0.1)";
+          statusSummary.style.border = "1px solid rgba(239, 68, 68, 0.2)";
+          statusSummary.style.color = "#f87171";
+          statusSummary.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 500;">Error de validación de estructura de base de datos</span>
+            </div>
+          `;
+        }
+        
+        if (columnsList) {
+          columnsList.innerHTML = `
+            <div style="padding: 2.5rem; border-radius: 12px; background: rgba(239, 68, 68, 0.03); border: 1px dashed rgba(239, 68, 68, 0.15); color: #f87171; text-align: center; width: 100%; box-sizing: border-box;">
+              <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem auto;">
+                <i data-lucide="alert-circle" style="width: 28px; height: 28px; color: #ef4444;"></i>
+              </div>
+              <h3 style="color: #f87171; margin-top: 0; margin-bottom: 0.5rem; font-size: 1.15rem; border: none; padding: 0; font-weight: 600;">No se pudo procesar el archivo Excel</h3>
+              <p style="color: var(--text-muted); font-size: 0.88rem; max-width: 600px; margin: 0 auto 1.5rem auto; line-height: 1.55;">${err.message}</p>
+              <div style="display: flex; justify-content: center; gap: 10px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-close-validation-err" style="margin: 0; padding: 8px 16px;">Cerrar y Corregir</button>
+              </div>
+            </div>
+          `;
+          
+          const closeErrBtn = document.getElementById("btn-close-validation-err");
+          if (closeErrBtn) {
+            closeErrBtn.addEventListener("click", () => {
+              const modal = document.getElementById("modal-schema-validation");
+              if (modal) modal.style.display = "none";
+            });
+          }
+          
+          if (window.lucide) lucide.createIcons();
+        }
+        
+        if (confirmBtn) {
+          confirmBtn.disabled = true;
+        }
       });
   }
 

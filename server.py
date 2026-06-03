@@ -901,8 +901,8 @@ def get_excel_path():
 def find_headers_row(ws):
     # Scan the first 15 rows to find the row containing header cells
     for r in range(1, 16):
-        # We check the first 10 columns
-        for c in range(1, min(ws.max_column + 1, 11)):
+        # We check the first 50 columns
+        for c in range(1, min(ws.max_column + 1, 51)):
             val = ws.cell(row=r, column=c).value
             if val and any(x in str(val).upper() for x in ["NOMBRE COMPLETO", "COD.", "NO."]):
                 return r
@@ -1612,9 +1612,10 @@ def ensure_vacation_columns_in_excel(excel_path, schema):
     except Exception as e:
         print("Error ensuring vacation columns in Excel:", e)
 
-def check_and_heal_schema():
+def check_and_heal_schema(excel_path=None, save_to_disk=True):
     schema = load_schema()
-    excel_path = get_excel_path()
+    if excel_path is None:
+        excel_path = get_excel_path()
     ensure_vacation_columns_in_excel(excel_path, schema)
     if not os.path.exists(excel_path):
         return schema
@@ -1649,7 +1650,8 @@ def check_and_heal_schema():
         if mismatch:
             print("Excel headers mismatch detected! Running self-healing schema wrapper...")
             new_schema = heal_schema_with_ai(current_headers, schema)
-            save_schema(new_schema)
+            if save_to_disk:
+                save_schema(new_schema)
             
             # Rewrite formulas in Hoja1 to align with newly healed column letters
             try:
@@ -2539,7 +2541,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "No se especificó la ruta del archivo o el archivo no existe."}, 400)
                 return
 
-            schema = check_and_heal_schema()
+            schema = check_and_heal_schema(excel_path, save_to_disk=False)
             req_cols = {int(c["index"]): c for c in body.get("columns", [])} if body.get("columns") else {}
             
             # Read spreadsheet headers and formulas
