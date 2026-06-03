@@ -1351,41 +1351,55 @@ document.addEventListener("DOMContentLoaded", () => {
       const vacTom = emp.vacaciones_tomadas || 0;
       const vacRest = (vacTot - vacTom);
 
+      const getCellAttrs = (field, extraStyle = '', extraClass = '') => {
+        const formula = emp._formulas && emp._formulas[field] ? emp._formulas[field] : null;
+        let attrs = `data-field="${field}"`;
+        if (formula) {
+          attrs += ` data-formula="${formula.replace(/"/g, '&quot;')}"`;
+        }
+        let styleAttr = extraStyle ? `style="${extraStyle}"` : '';
+        let classList = [];
+        if (extraClass) classList.push(extraClass);
+        if (formula) classList.push('has-formula');
+        let classAttr = classList.length > 0 ? `class="${classList.join(' ')}"` : '';
+        return `${classAttr} ${styleAttr} ${attrs}`.trim();
+      };
+
       let rowHtml = `
         <tr ${rowClass}>
           <td class="align-center">${calc.isBaja ? '-' : idx}</td>
-          <td class="align-center" style="font-family:monospace; font-weight:600;">${emp.id}</td>
-          <td class="align-center">${emp.empresa || '-'}</td>
-          <td class="align-left" style="font-weight: 500;">
+          <td class="align-center" style="font-family:monospace; font-weight:600;" data-field="id">${emp.id}</td>
+          <td class="align-center" data-field="empresa">${emp.empresa || '-'}</td>
+          <td class="align-left" style="font-weight: 500;" data-field="nombre">
             ${emp.nombre || '-'}
             ${calc.isBaja ? '<span class="badge danger" style="font-size:0.55rem; padding:0.05rem 0.25rem; margin-left:0.25rem;">Baja</span>' : ''}
           </td>
-          <td class="align-center">${emp.ingreso || '-'}</td>
-          <td class="align-center">${calc.antiguedad.toFixed(1)}</td>
-          <td class="align-center" style="background: rgba(16, 185, 129, 0.03); font-weight: 600;">${calc.isBaja ? '-' : vacTot}</td>
-          <td class="align-center" style="background: rgba(16, 185, 129, 0.03);">${calc.isBaja ? '-' : (vacTom > 0 ? vacTom : '-')}</td>
-          <td class="align-center" style="background: rgba(16, 185, 129, 0.03); font-weight: 700; color: ${vacRest <= 0 ? 'var(--danger)' : '#10b981'};">${calc.isBaja ? '-' : vacRest}</td>
-          <td class="align-center">${faLabel}</td>
+          <td class="align-center" data-field="ingreso">${emp.ingreso || '-'}</td>
+          <td ${getCellAttrs('antiguedad', '', 'align-center')}>${calc.antiguedad.toFixed(1)}</td>
+          <td ${getCellAttrs('vacaciones_totales', 'background: rgba(16, 185, 129, 0.03); font-weight: 600;', 'align-center')}>${calc.isBaja ? '-' : vacTot}</td>
+          <td ${getCellAttrs('vacaciones_tomadas', 'background: rgba(16, 185, 129, 0.03);', 'align-center')}>${calc.isBaja ? '-' : (vacTom > 0 ? vacTom : '-')}</td>
+          <td ${getCellAttrs('vacaciones_restantes', `background: rgba(16, 185, 129, 0.03); font-weight: 700; color: ${vacRest <= 0 ? 'var(--danger)' : '#10b981'};`, 'align-center')}>${calc.isBaja ? '-' : vacRest}</td>
+          <td ${getCellAttrs('fondo_ahorro_activo', '', 'align-center')}>${faLabel}</td>
       `;
 
       // Render Nominal columns
       nominalCols.forEach(c => {
         const val = calc[c.field] !== undefined ? calc[c.field] : emp[c.field];
         let formatted = '-';
-        let cellClass = '';
+        let extraClass = '';
         if (val > 0) {
           formatted = c.field === 'factor_integracion' ? val.toFixed(4) : formatNumber(val);
         } else if (val === 0 && emp.salario_diario > 0 && (c.field === 'puntualidad' || c.field === 'asistencia')) {
           formatted = '0.00';
-          cellClass = 'class="overridden-cell"';
+          extraClass = 'overridden-cell';
         }
-        rowHtml += `<td ${cellClass}>${formatted}</td>`;
+        rowHtml += `<td ${getCellAttrs(c.field, '', extraClass)}>${formatted}</td>`;
       });
 
       // Render Others columns
       otherCols.forEach(c => {
         const val = emp[c.field] || 0.0;
-        rowHtml += `<td>${val > 0 ? formatNumber(val) : '-'}</td>`;
+        rowHtml += `<td ${getCellAttrs(c.field)}>${val > 0 ? formatNumber(val) : '-'}</td>`;
       });
 
       // Total otros
@@ -1393,20 +1407,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Render sueldos y ajustes row totals
       rowHtml += `
-          <td style="font-weight: 600;">${calc.sueldoBrutoMensual > 0 ? formatNumber(calc.sueldoBrutoMensual) : '-'}</td>
-          <td>${calc.sueldoBrutoQuincenalNormal > 0 ? formatNumber(calc.sueldoBrutoQuincenalNormal) : '-'}</td>
+          <td ${getCellAttrs('bruto_mensual', 'font-weight: 600;')}>${calc.sueldoBrutoMensual > 0 ? formatNumber(calc.sueldoBrutoMensual) : '-'}</td>
+          <td ${getCellAttrs('bruto_quincenal')}>${calc.sueldoBrutoQuincenalNormal > 0 ? formatNumber(calc.sueldoBrutoQuincenalNormal) : '-'}</td>
           <td class="${calc.descuentoFaltas > 0 ? 'overridden-cell' : ''}">${calc.descuentoFaltas > 0 ? formatNumber(calc.descuentoFaltas) : '-'}</td>
       `;
 
       // Render dynamic deduction columns
       deductionCols.forEach(c => {
         const val = emp[c.field] || 0.0;
-        rowHtml += `<td class="${val > 0 ? 'overridden-cell' : ''}">${val > 0 ? formatNumber(val) : '-'}</td>`;
+        const extraClass = val > 0 ? 'overridden-cell' : '';
+        rowHtml += `<td ${getCellAttrs(c.field, '', extraClass)}>${val > 0 ? formatNumber(val) : '-'}</td>`;
       });
 
       rowHtml += `
-          <td style="font-weight: 700; color: #fff; background: rgba(99,102,241,0.05);">${calc.sueldoNetoQuincenal > 0 ? formatNumber(calc.sueldoNetoQuincenal) : '-'}</td>
-          <td class="align-left" style="font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${emp.observaciones || ''}">${emp.observaciones || '-'}</td>
+          <td ${getCellAttrs('neto_quincenal', 'font-weight: 700; color: #fff; background: rgba(99,102,241,0.05);')}>${calc.sueldoNetoQuincenal > 0 ? formatNumber(calc.sueldoNetoQuincenal) : '-'}</td>
+          <td ${getCellAttrs('observaciones', 'font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;', 'align-left')} title="${emp.observaciones || ''}">${emp.observaciones || '-'}</td>
         </tr>
       `;
 
@@ -2916,6 +2931,98 @@ document.addEventListener("DOMContentLoaded", () => {
   window.editCompany = editCompany;
   window.deleteCompany = deleteCompany;
   window.loadCompanies = loadCompanies;
+
+  // Event delegation for cell tooltips on hover
+  let tooltipTimeout = null;
+  
+  function showCellTooltip(cell, e) {
+    let tooltip = document.getElementById("cell-tooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = "cell-tooltip";
+      tooltip.className = "cell-tooltip";
+      document.body.appendChild(tooltip);
+    }
+
+    const formula = cell.getAttribute("data-formula");
+    const val = cell.textContent.trim();
+    const fieldName = cell.getAttribute("data-field");
+    
+    if (val === '-' || val === '') {
+      hideCellTooltip();
+      return;
+    }
+    
+    // Find label/header for the field if available
+    let headerText = "";
+    if (state.schema && state.schema.columns) {
+      const col = state.schema.columns.find(c => c.field === fieldName);
+      if (col) {
+        headerText = col.label || col.header || "";
+      }
+    }
+    
+    let html = "";
+    if (headerText) {
+      html += `<div class="tooltip-header">${headerText}</div>`;
+    }
+    html += `<div class="tooltip-row"><strong>Valor:</strong> <span>${val}</span></div>`;
+    if (formula) {
+      html += `<div class="tooltip-row formula-row"><strong>Fórmula:</strong> <code>${formula}</code></div>`;
+    }
+    
+    tooltip.innerHTML = html;
+    tooltip.classList.add("active");
+    
+    // Position tooltip above the cell
+    const rect = cell.getBoundingClientRect();
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+    
+    const top = rect.top + window.scrollY - tooltipHeight - 8;
+    const left = rect.left + window.scrollX + (rect.width - tooltipWidth) / 2;
+    
+    tooltip.style.top = `${top}px`;
+    tooltip.style.left = `${left}px`;
+  }
+  
+  function hideCellTooltip() {
+    const tooltip = document.getElementById("cell-tooltip");
+    if (tooltip) {
+      tooltip.classList.remove("active");
+    }
+  }
+
+  document.addEventListener("mouseover", (e) => {
+    const cell = e.target.closest(".prenomina-table tbody td");
+    if (!cell) {
+      hideCellTooltip();
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+      return;
+    }
+    
+    if (tooltipTimeout) clearTimeout(tooltipTimeout);
+    tooltipTimeout = setTimeout(() => {
+      showCellTooltip(cell, e);
+    }, 150); // slight delay for smooth browsing
+  });
+  
+  document.addEventListener("mouseout", (e) => {
+    const cell = e.target.closest(".prenomina-table tbody td");
+    if (cell) {
+      hideCellTooltip();
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+    }
+  });
+
+  // Hide tooltip on scroll to prevent it from floating around detached
+  window.addEventListener("scroll", hideCellTooltip, { passive: true });
 
 });
 

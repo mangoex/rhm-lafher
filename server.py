@@ -2573,6 +2573,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     emp = {
                         "id": cod_id,
                         "_row": row,
+                        "_formulas": {},
                         "faltas": emp_agg["faltas"],
                         "vacaciones": emp_agg["vacaciones"],
                         "retardos": emp_agg["retardos"],
@@ -2586,7 +2587,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         f = col["field"]
                         t = col["type"]
                         val = sheet_v.cell(row=row, column=col["index"]).value
+                        val_f = sheet_f.cell(row=row, column=col["index"]).value
                         
+                        if isinstance(val_f, str) and val_f.startswith("="):
+                            emp["_formulas"][f] = val_f
+                            
                         if f == "id":
                             continue # Already handled
                         elif t == "float":
