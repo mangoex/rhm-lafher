@@ -3568,11 +3568,17 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             # Identify companies with missing risk premium (prima_riesgo)
             missing_companies_config = []
+            excel_cos_upper = {ec.strip().upper() for ec in excel_companies if ec}
             for c in companies:
-                if c["nombre"].strip() in excel_companies:
-                    if c["regimen"] == "Régimen General de Ley Personas Morales":
-                        if c["prima_riesgo"] is None or c.get("prima_riesgo", 0.0) == 0.0:
-                            missing_companies_config.append(c["nombre"])
+                c_name = c.get("nombre", "").strip()
+                if c_name.upper() in excel_cos_upper:
+                    if c.get("regimen") == "Régimen General de Ley Personas Morales":
+                        try:
+                            pr_val = float(str(c.get("prima_riesgo", 0.0)).replace("%", "").strip())
+                        except:
+                            pr_val = 0.0
+                        if pr_val == 0.0:
+                            missing_companies_config.append(c_name)
             
             self.send_json({
                 "period": schema.get("period", "16 al 30 Abr 2026"),

@@ -2956,7 +2956,7 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast(data.error, "error");
       } else {
         showToast("Empresa eliminada del catálogo exitosamente", "success");
-        loadCompanies();
+        loadState();
       }
     })
     .catch(err => {
@@ -3099,7 +3099,7 @@ document.addEventListener("DOMContentLoaded", () => {
           document.getElementById("company-id").value = "";
           document.getElementById("company-form-title").innerHTML = '<i data-lucide="plus-circle"></i> Registrar / Editar Empresa';
           document.getElementById("btn-cancel-company").style.display = "none";
-          loadCompanies();
+          loadState();
         }
       })
       .catch(err => {
