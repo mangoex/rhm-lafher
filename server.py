@@ -1177,38 +1177,48 @@ def get_field_letter(schema, field_name):
 def get_ai_api_key(provider="google"):
     """Read AI API key from: 1) secrets.json, 2) env var. Never from schema.json."""
     secrets = load_secrets()
+    if not isinstance(secrets, dict):
+        secrets = {}
     key = ""
+    
+    # Helper to get string cleanly
+    def get_sec_val(k):
+        val = secrets.get(k)
+        if val is None:
+            return ""
+        return str(val).strip()
+
     if provider == "openrouter":
-        if "openrouter_api_key" in secrets and secrets["openrouter_api_key"].strip():
-            key = secrets["openrouter_api_key"].strip()
+        sec_key = get_sec_val("openrouter_api_key")
+        if sec_key:
+            key = sec_key
         else:
-            env_key = os.environ.get("OPENROUTER_API_KEY", "").strip() or os.environ.get("OPEN_ROUTER_API_KEY", "").strip()
+            env_key = (os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPEN_ROUTER_API_KEY") or "").strip()
             if env_key:
                 key = env_key
             else:
-                # Check generic slots only if they look like OpenRouter keys (usually start with sk-or-)
-                generic_sec = secrets.get("ai_api_key", "").strip()
+                generic_sec = get_sec_val("ai_api_key")
                 if generic_sec.startswith("sk-or-"):
                     key = generic_sec
                 else:
-                    generic_env = os.environ.get("AI_API_KEY", "").strip()
+                    generic_env = (os.environ.get("AI_API_KEY") or "").strip()
                     if generic_env.startswith("sk-or-"):
                         key = generic_env
         
     else:  # Google Gemini
-        if "google_api_key" in secrets and secrets["google_api_key"].strip():
-            key = secrets["google_api_key"].strip()
+        sec_key = get_sec_val("google_api_key")
+        if sec_key:
+            key = sec_key
         else:
-            env_key = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+            env_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
             if env_key:
                 key = env_key
             else:
-                # Check generic slots only if they do NOT look like OpenRouter keys
-                generic_sec = secrets.get("ai_api_key", "").strip()
+                generic_sec = get_sec_val("ai_api_key")
                 if generic_sec and not generic_sec.startswith("sk-or-"):
                     key = generic_sec
                 else:
-                    generic_env = os.environ.get("AI_API_KEY", "").strip()
+                    generic_env = (os.environ.get("AI_API_KEY") or "").strip()
                     if generic_env and not generic_env.startswith("sk-or-"):
                         key = generic_env
 
@@ -1949,160 +1959,175 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def do_GET(self):
-        path_only = self.path.split("?")[0]
-        
-        # Static files or non-API routes are served publicly
-        if not path_only.startswith("/api/"):
-            super().do_GET()
-            return
+        try:
+            path_only = self.path.split("?")[0]
             
-        # Authentication middleware for API routes
-        session = self.get_session_user()
-        if not session:
-            self.send_json({"error": "No autorizado. Inicie sesiÃ³n."}, 401)
-            return
-            
-        # Admin-only GET endpoints
-        if path_only == "/api/download-excel" or path_only == "/api/users":
-            if session["role"] != "admin":
-                self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+            # Static files or non-API routes are served publicly
+            if not path_only.startswith("/api/"):
+                super().do_GET()
                 return
                 
-        # Endpoint routes
-        with EXCEL_LOCK:
-            if path_only == "/api/employees":
-                self.get_employees()
-            elif path_only == "/api/schema":
-                self.get_schema()
-            elif path_only == "/api/select-file":
-                self.select_file()
-            elif path_only == "/api/select-rules-file":
-                self.select_rules_file()
-            elif path_only == "/api/download-excel":
-                self.download_excel()
-            elif path_only == "/api/users":
-                self.get_users()
-            elif path_only == "/api/ai-status":
-                self.get_ai_status()
-            elif path_only == "/api/companies":
-                self.get_companies()
-            elif path_only == "/api/incidences":
-                import urllib.parse
-                parsed = urllib.parse.urlparse(self.path)
-                params = urllib.parse.parse_qs(parsed.query)
-                employee_id = params.get("id", [None])[0]
-                self.get_incidences_endpoint(employee_id)
-            else:
-                self.send_json({"error": "Endpoint not found"}, 404)
+            # Authentication middleware for API routes
+            session = self.get_session_user()
+            if not session:
+                self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+                return
+                
+            # Admin-only GET endpoints
+            if path_only == "/api/download-excel" or path_only == "/api/users":
+                if session["role"] != "admin":
+                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                    return
+                    
+            # Endpoint routes
+            with EXCEL_LOCK:
+                if path_only == "/api/employees":
+                    self.get_employees()
+                elif path_only == "/api/schema":
+                    self.get_schema()
+                elif path_only == "/api/select-file":
+                    self.select_file()
+                elif path_only == "/api/select-rules-file":
+                    self.select_rules_file()
+                elif path_only == "/api/download-excel":
+                    self.download_excel()
+                elif path_only == "/api/users":
+                    self.get_users()
+                elif path_only == "/api/ai-status":
+                    self.get_ai_status()
+                elif path_only == "/api/companies":
+                    self.get_companies()
+                elif path_only == "/api/incidences":
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(self.path)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    employee_id = params.get("id", [None])[0]
+                    self.get_incidences_endpoint(employee_id)
+                else:
+                    self.send_json({"error": "Endpoint not found"}, 404)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print(f"Error in do_GET for {self.path}:\n", tb)
+            self.send_json({"error": f"Internal Server Error: {e}", "details": tb}, 500)
 
     def do_POST(self):
-        path_only = self.path.split("?")[0]
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length) if content_length > 0 else b""
+        try:
+            path_only = self.path.split("?")[0]
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length) if content_length > 0 else b""
 
-        # Login is public
-        if path_only == "/api/login":
-            self.login_endpoint(post_data)
-            return
-
-        # Authentication middleware for other API routes
-        session = self.get_session_user()
-        if not session:
-            self.send_json({"error": "No autorizado. Inicie sesiÃ³n."}, 401)
-            return
-
-        # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/companies", "/api/schema/validate", "/api/schema/confirm"]:
-            if session["role"] != "admin":
-                self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+            # Login is public
+            if path_only == "/api/login":
+                self.login_endpoint(post_data)
                 return
 
-        if path_only == "/api/parse-docx":
-            self.parse_docx_endpoint(post_data)
-            return
-        elif path_only == "/api/upload-database":
-            self.upload_database_endpoint(post_data)
-            return
-        elif path_only == "/api/upload-rules":
-            self.upload_rules_endpoint(post_data)
-            return
+            # Authentication middleware for other API routes
+            session = self.get_session_user()
+            if not session:
+                self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+                return
 
-        try:
-            body = json.loads(post_data.decode("utf-8")) if post_data else {}
+            # Admin-only POST endpoints
+            if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/companies", "/api/schema/validate", "/api/schema/confirm"]:
+                if session["role"] != "admin":
+                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                    return
+
+            if path_only == "/api/parse-docx":
+                self.parse_docx_endpoint(post_data)
+                return
+            elif path_only == "/api/upload-database":
+                self.upload_database_endpoint(post_data)
+                return
+            elif path_only == "/api/upload-rules":
+                self.upload_rules_endpoint(post_data)
+                return
+
+            try:
+                body = json.loads(post_data.decode("utf-8")) if post_data else {}
+            except Exception as e:
+                self.send_json({"error": f"Invalid JSON: {e}"}, 400)
+                return
+
+            with EXCEL_LOCK:
+                if path_only == "/api/collaborator":
+                    self.save_collaborator(body)
+                elif path_only == "/api/companies":
+                    self.save_companies(body)
+                elif path_only == "/api/incidences":
+                    self.save_incidences(body)
+                elif path_only == "/api/period":
+                    self.save_period(body)
+                elif path_only == "/api/config":
+                    self.save_config(body)
+                elif path_only == "/api/schema/clarify":
+                    self.save_clarify(body)
+                elif path_only == "/api/schema/validate":
+                    self.schema_validate_endpoint(body)
+                elif path_only == "/api/schema/confirm":
+                    self.schema_confirm_endpoint(body)
+                elif path_only == "/api/payroll/explain":
+                    self.explain_payroll(body)
+                elif path_only == "/api/users":
+                    self.save_user_endpoint(body)
+                elif path_only == "/api/logout":
+                    self.logout_endpoint()
+                else:
+                    self.send_json({"error": "Endpoint not found"}, 404)
         except Exception as e:
-            self.send_json({"error": f"Invalid JSON: {e}"}, 400)
-            return
-
-        with EXCEL_LOCK:
-            if path_only == "/api/collaborator":
-                self.save_collaborator(body)
-            elif path_only == "/api/companies":
-                self.save_companies(body)
-            elif path_only == "/api/incidences":
-                self.save_incidences(body)
-            elif path_only == "/api/period":
-                self.save_period(body)
-            elif path_only == "/api/config":
-                self.save_config(body)
-            elif path_only == "/api/schema/clarify":
-                self.save_clarify(body)
-            elif path_only == "/api/schema/validate":
-                self.schema_validate_endpoint(body)
-            elif path_only == "/api/schema/confirm":
-                self.schema_confirm_endpoint(body)
-            elif path_only == "/api/payroll/explain":
-                self.explain_payroll(body)
-            elif path_only == "/api/users":
-                self.save_user_endpoint(body)
-            elif path_only == "/api/logout":
-                self.logout_endpoint()
-            else:
-                self.send_json({"error": "Endpoint not found"}, 404)
+            tb = traceback.format_exc()
+            print(f"Error in do_POST for {self.path}:\n", tb)
+            self.send_json({"error": f"Internal Server Error: {e}", "details": tb}, 500)
 
     def do_DELETE(self):
-        path_only = self.path.split("?")[0]
-        session = self.get_session_user()
-        if not session:
-            self.send_json({"error": "No autorizado. Inicie sesiÃ³n."}, 401)
-            return
+        try:
+            path_only = self.path.split("?")[0]
+            session = self.get_session_user()
+            if not session:
+                self.send_json({"error": "No autorizado. Inicie sesión."}, 401)
+                return
 
-        with EXCEL_LOCK:
-            if path_only == "/api/users":
-                if session["role"] != "admin":
-                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
-                    return
-                import urllib.parse
-                parsed = urllib.parse.urlparse(self.path)
-                params = urllib.parse.parse_qs(parsed.query)
-                username = params.get("username", [None])[0]
-                if not username:
-                    self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
-                    return
-                self.delete_user_endpoint(username)
-            elif path_only == "/api/companies":
-                if session["role"] != "admin":
-                    self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
-                    return
-                import urllib.parse
-                parsed = urllib.parse.urlparse(self.path)
-                params = urllib.parse.parse_qs(parsed.query)
-                company_id = params.get("id", [None])[0]
-                if not company_id:
-                    self.send_json({"error": "Falta el ID de la empresa a eliminar"}, 400)
-                    return
-                self.delete_company_endpoint(company_id)
-            elif path_only == "/api/incidences":
-                import urllib.parse
-                parsed = urllib.parse.urlparse(self.path)
-                params = urllib.parse.parse_qs(parsed.query)
-                employee_id = params.get("employee_id", [None])[0]
-                date_val = params.get("date", [None])[0]
-                if not employee_id or not date_val:
-                    self.send_json({"error": "Falta employee_id o date para eliminar la incidencia"}, 400)
-                    return
-                self.delete_incidence_endpoint(employee_id, date_val)
-            else:
-                self.send_json({"error": "Endpoint not found"}, 404)
+            with EXCEL_LOCK:
+                if path_only == "/api/users":
+                    if session["role"] != "admin":
+                        self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                        return
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(self.path)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    username = params.get("username", [None])[0]
+                    if not username:
+                        self.send_json({"error": "Falta el nombre de usuario a eliminar"}, 400)
+                        return
+                    self.delete_user_endpoint(username)
+                elif path_only == "/api/companies":
+                    if session["role"] != "admin":
+                        self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
+                        return
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(self.path)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    company_id = params.get("id", [None])[0]
+                    if not company_id:
+                        self.send_json({"error": "Falta el ID de la empresa a eliminar"}, 400)
+                        return
+                    self.delete_company_endpoint(company_id)
+                elif path_only == "/api/incidences":
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(self.path)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    employee_id = params.get("employee_id", [None])[0]
+                    date_val = params.get("date", [None])[0]
+                    if not employee_id or not date_val:
+                        self.send_json({"error": "Falta employee_id o date para eliminar la incidencia"}, 400)
+                        return
+                    self.delete_incidence_endpoint(employee_id, date_val)
+                else:
+                    self.send_json({"error": "Endpoint not found"}, 404)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print(f"Error in do_DELETE for {self.path}:\n", tb)
+            self.send_json({"error": f"Internal Server Error: {e}", "details": tb}, 500)
 
     def get_session_user(self):
         token = None
