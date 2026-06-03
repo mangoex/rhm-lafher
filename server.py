@@ -648,6 +648,22 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
     vales_col = get_field_index(schema, "vales_despensa")
     fa_col = get_field_index(schema, "fondo_ahorro")
     
+    sueldo_nominal_col = get_field_index(schema, "sueldo_nominal")
+    percepcion_sueldos_col = get_field_index(schema, "percepcion_sueldos")
+    bruto_mensual_col = get_field_index(schema, "bruto_mensual")
+    bruto_quincenal_col = get_field_index(schema, "bruto_quincenal")
+    bruto_mensual_neto_col = get_field_index(schema, "bruto_mensual_neto")
+    descuento_quincenal_acumulado_col = get_field_index(schema, "descuento_quincenal_acumulado")
+
+    sueldo_nominal_letter = get_field_letter(schema, "sueldo_nominal")
+    percepcion_sueldos_letter = get_field_letter(schema, "percepcion_sueldos")
+    bruto_mensual_letter = get_field_letter(schema, "bruto_mensual")
+    bruto_quincenal_letter = get_field_letter(schema, "bruto_quincenal")
+    deuda_carro_letter = get_field_letter(schema, "deuda_carro")
+
+    def L(field_name):
+        return get_field_letter(schema, field_name)
+    
     ingreso_col = get_field_index(schema, "ingreso")
     antiguedad_col = get_field_index(schema, "antiguedad")
     fi_col = get_field_index(schema, "factor_integracion")
@@ -783,6 +799,29 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                     ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
                 else:
                     ws.cell(row=row, column=fa_col).value = None
+
+            # Formulate remaining calculated columns
+            if sueldo_nominal_col and salario_diario_letter:
+                ws.cell(row=row, column=sueldo_nominal_col).value = f"={salario_diario_letter}{row}*{dias_mes_cell}"
+                
+            if percepcion_sueldos_col and sueldo_nominal_letter and get_field_letter(schema, "fondo_ahorro"):
+                ws.cell(row=row, column=percepcion_sueldos_col).value = f"=SUM({sueldo_nominal_letter}{row}:{get_field_letter(schema, 'fondo_ahorro')}{row})"
+                
+            if bruto_mensual_col and percepcion_sueldos_letter and deuda_carro_letter:
+                ws.cell(row=row, column=bruto_mensual_col).value = f"=SUM({percepcion_sueldos_letter}{row}:{deuda_carro_letter}{row})"
+                
+            if bruto_quincenal_col and bruto_mensual_letter:
+                ws.cell(row=row, column=bruto_quincenal_col).value = f"={bruto_mensual_letter}{row}" if is_monthly else f"={bruto_mensual_letter}{row}/2"
+                
+            if bruto_mensual_neto_col and bruto_mensual_letter:
+                ded_fields = [col["field"] for col in schema.get("columns", []) if col.get("category") == "deduction"]
+                ded_sub_str = "".join([f"-{L(df)}{row}" for df in ded_fields if L(df)])
+                if not ded_sub_str:
+                    ded_sub_str = f"-{L('descuento_adicional')}{row}"
+                ws.cell(row=row, column=bruto_mensual_neto_col).value = f"={bruto_mensual_letter}{row}{ded_sub_str}"
+                
+            if descuento_quincenal_acumulado_col and bruto_quincenal_letter and get_field_letter(schema, "neto_quincenal"):
+                ws.cell(row=row, column=descuento_quincenal_acumulado_col).value = f"={bruto_quincenal_letter}{row}-{get_field_letter(schema, 'neto_quincenal')}{row}"
                 
             # Reset dynamic deductions in Hoja1
             for col in schema.get("columns", []):

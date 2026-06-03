@@ -3210,8 +3210,63 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function clearHighlights() {
+    document.querySelectorAll(".prenomina-table td.referenced-cell-highlight").forEach(c => {
+      c.classList.remove("referenced-cell-highlight");
+    });
+  }
+
+  function getColumnIndex(letter) {
+    if (!state.schema || !state.schema.columns) return -1;
+    const col = state.schema.columns.find(c => c.letter === letter);
+    return col ? col.index : -1;
+  }
+
+  function getColumnRange(start, end) {
+    const startIndex = getColumnIndex(start);
+    const endIndex = getColumnIndex(end);
+    if (startIndex === -1 || endIndex === -1 || !state.schema || !state.schema.columns) return [];
+    
+    const minIdx = Math.min(startIndex, endIndex);
+    const maxIdx = Math.max(startIndex, endIndex);
+    
+    const result = [];
+    state.schema.columns.forEach(c => {
+      if (c.index >= minIdx && c.index <= maxIdx) {
+        result.push(c.letter);
+      }
+    });
+    return result;
+  }
+
+  function getReferencedColumnsForHover(formula, row) {
+    if (!formula) return [];
+    const referencedCols = new Set();
+    
+    // 1. Detect and parse ranges like P12:T12 (where row matches the employee's row number)
+    const rangeRegex = new RegExp(`([A-Z]+)${row}:([A-Z]+)${row}`, 'g');
+    let match;
+    while ((match = rangeRegex.exec(formula)) !== null) {
+      const colStart = match[1];
+      const colEnd = match[2];
+      const cols = getColumnRange(colStart, colEnd);
+      cols.forEach(c => referencedCols.add(c));
+    }
+    
+    // 2. Detect individual cells on the same row, e.g. AF12
+    const cellRegex = new RegExp(`([A-Z]+)${row}\\b`, 'g');
+    cellRegex.lastIndex = 0;
+    while ((match = cellRegex.exec(formula)) !== null) {
+      referencedCols.add(match[1]);
+    }
+    
+    return Array.from(referencedCols);
+  }
+
   document.addEventListener("mouseover", (e) => {
     const cell = e.target.closest(".prenomina-table tbody td");
+    clearHighlights();
+    
     if (!cell) {
       hideCellTooltip();
       if (tooltipTimeout) {
@@ -3219,6 +3274,31 @@ document.addEventListener("DOMContentLoaded", () => {
         tooltipTimeout = null;
       }
       return;
+    }
+
+    // Highlight source cells if hovering over a cell with a formula
+    const formula = cell.getAttribute("data-formula");
+    if (formula && state.schema && state.schema.columns) {
+      const rowEl = cell.closest("tr");
+      if (rowEl) {
+        const idCell = rowEl.querySelector('td[data-field="id"]');
+        const empId = idCell ? idCell.textContent.trim() : null;
+        const emp = state.employees.find(emp => String(emp.id) === String(empId));
+        if (emp && emp._row) {
+          const letters = getReferencedColumnsForHover(formula, emp._row);
+          const fieldsToHighlight = letters.map(l => {
+            const col = state.schema.columns.find(c => c.letter === l);
+            return col ? col.field : null;
+          }).filter(Boolean);
+          
+          fieldsToHighlight.forEach(field => {
+            const targetCell = rowEl.querySelector(`td[data-field="${field}"]`);
+            if (targetCell) {
+              targetCell.classList.add("referenced-cell-highlight");
+            }
+          });
+        }
+      }
     }
     
     if (tooltipTimeout) clearTimeout(tooltipTimeout);
@@ -3236,6 +3316,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tooltipTimeout = null;
       }
     }
+    clearHighlights();
   });
 
   // Hide tooltip on scroll to prevent it from floating around detached

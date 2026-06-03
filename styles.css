@@ -1633,3 +1633,13 @@ td.has-formula:hover::after {
   box-shadow: 0 0 8px var(--primary-glow);
 }
 
+/* Referenced formula source cells highlight style */
+.referenced-cell-highlight {
+  outline: 2px solid #ef4444 !important;
+  outline-offset: -2px;
+  position: relative;
+  z-index: 10;
+  background-color: rgba(239, 68, 68, 0.08) !important;
+  transition: outline var(--transition-fast), background-color var(--transition-fast);
+}
+
