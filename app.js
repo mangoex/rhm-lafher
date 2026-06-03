@@ -225,7 +225,11 @@ document.addEventListener("DOMContentLoaded", () => {
       let monthStr = "";
       if (activePeriod) {
         const parts = activePeriod.split(" ");
-        if (parts.length >= 4) monthStr = parts[2];
+        const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+        const foundMonth = parts.find(p => months.some(m => p.toLowerCase().startsWith(m.toLowerCase())));
+        if (foundMonth) {
+          monthStr = foundMonth;
+        }
       }
       
       let matchedIdx = 0;
@@ -280,7 +284,8 @@ document.addEventListener("DOMContentLoaded", () => {
         newMensual.classList.remove("active");
         
         populatePeriodDropdown("quincenal", state.period);
-        saveSelectedPeriod(periodSelect.value);
+        const activeSelect = document.getElementById("period-select");
+        saveSelectedPeriod(activeSelect ? activeSelect.value : "");
       });
       
       newMensual.addEventListener("click", () => {
@@ -289,7 +294,8 @@ document.addEventListener("DOMContentLoaded", () => {
         newQuincenal.classList.remove("active");
         
         populatePeriodDropdown("mensual", state.period);
-        saveSelectedPeriod(periodSelect.value);
+        const activeSelect = document.getElementById("period-select");
+        saveSelectedPeriod(activeSelect ? activeSelect.value : "");
       });
     }
     
