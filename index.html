@@ -350,7 +350,13 @@
                 <span id="btn-clear-prenomina-filter" style="cursor: pointer; font-weight: bold; font-size: 1.1rem; line-height: 1;" title="Limpiar filtro">×</span>
               </span>
             </h2>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Cálculos automáticos en tiempo real. Celdas con fondo naranja representan descuentos aplicados por incidencias.</p>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <span>Cálculos automáticos en tiempo real. Celdas con fondo naranja representan descuentos aplicados por incidencias.</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; color: #b91c1c; font-weight: 600;">
+                <span style="display: inline-block; width: 12px; height: 12px; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 3px;"></span>
+                Discrepancia detectada vs Excel original (> $2.00)
+              </span>
+            </p>
           </div>
           <div class="action-buttons">
             <button class="btn btn-primary" id="btn-open-ai-global" title="Consultar a la IA sobre toda la prenómina">

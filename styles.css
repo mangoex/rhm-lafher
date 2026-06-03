@@ -664,6 +664,13 @@ tr:hover td {
   color: #f59e0b !important;
 }
 
+.discrepancy-cell {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  color: #b91c1c !important;
+  font-weight: 600;
+}
+
 /* Modal Styling */
 .modal-overlay {
   position: fixed;

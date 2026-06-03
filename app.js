@@ -1576,10 +1576,17 @@ document.addEventListener("DOMContentLoaded", () => {
         if (formula) {
           attrs += ` data-formula="${formula.replace(/"/g, '&quot;')}"`;
         }
+        
+        const isDiscrepancy = emp.discrepancies && emp.discrepancies.includes(field);
+        if (isDiscrepancy) {
+          attrs += ` title="Discrepancia detectada: el valor en el Excel original difiere del cálculo oficial por más de $2.00 pesos."`;
+        }
+        
         let styleAttr = extraStyle ? `style="${extraStyle}"` : '';
         let classList = [];
         if (extraClass) classList.push(extraClass);
         if (formula) classList.push('has-formula');
+        if (isDiscrepancy) classList.push('discrepancy-cell');
         let classAttr = classList.length > 0 ? `class="${classList.join(' ')}"` : '';
         return `${classAttr} ${styleAttr} ${attrs}`.trim();
       };

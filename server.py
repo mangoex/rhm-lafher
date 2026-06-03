@@ -452,7 +452,46 @@ def save_incidence_to_excel(wb, data):
         ws_inc.append(row_values)
 
 
-def recompile_active_period_incidences(wb, schema):
+def to_float_safe(val):
+    if val is None:
+        return 0.0
+    try:
+        s = str(val).replace(",", "").strip()
+        if s.startswith("="):
+            return 0.0
+        return float(s)
+    except ValueError:
+        return 0.0
+
+def has_diff(orig_data, expected_val):
+    if not orig_data:
+        return expected_val is not None and expected_val > 2.0
+        
+    orig_val = orig_data.get("val")
+    orig_formula = orig_data.get("formula")
+    
+    if isinstance(orig_formula, str) and orig_formula.startswith("="):
+        if orig_val is None:
+            return False
+            
+    if orig_val is None:
+        orig_f = 0.0
+    else:
+        orig_f = to_float_safe(orig_val)
+        
+    expected_f = expected_val if expected_val is not None else 0.0
+    
+    if abs(orig_f) < 0.01 and abs(expected_f) < 0.01:
+        return False
+        
+    if orig_val is None and expected_f > 2.0:
+        return True
+    if orig_val is not None and abs(orig_f) > 0.01 and expected_f == 0.0 and abs(orig_f) > 2.0:
+        return True
+        
+    return abs(orig_f - expected_f) > 2.00
+
+def recompile_active_period_incidences(wb, schema, original_values=None):
     ws = wb.active # Hoja1
     
     def add_years(d, years):
@@ -601,6 +640,9 @@ def recompile_active_period_incidences(wb, schema):
     neto_quincenal_col = get_field_index(schema, "neto_quincenal")
     bruto_mensual_neto_letter = get_field_letter(schema, "bruto_mensual_neto")
     sdi_letter = get_field_letter(schema, "sdi")
+    sdi_col = get_field_index(schema, "sdi")
+    salario_diario_letter = get_field_letter(schema, "salario_diario")
+    factor_integracion_letter = get_field_letter(schema, "factor_integracion")
     puntualidad_col = get_field_index(schema, "puntualidad")
     asistencia_col = get_field_index(schema, "asistencia")
     vales_col = get_field_index(schema, "vales_despensa")
@@ -619,8 +661,24 @@ def recompile_active_period_incidences(wb, schema):
     dias_mes_cell = ensure_absolute_cell(schema.get("dias_mes_cell", "N3"))
     fa_pct_cell = ensure_absolute_cell(schema.get("fa_pct_cell", "L3"))
     
+    def get_cell_float_val(ws, coordinate, default):
+        val = ws[coordinate].value
+        if val is None:
+            return default
+        try:
+            return float(str(val).replace(",", "").strip())
+        except:
+            return default
+
+    uma = get_cell_float_val(ws, uma_cell, 117.31)
+    vales_pct = get_cell_float_val(ws, vales_pct_cell, 40.0)
+    dias_mes = get_cell_float_val(ws, dias_mes_cell, 30.4)
+    fa_pct = get_cell_float_val(ws, fa_pct_cell, 11.0)
+    
     headers_row = find_headers_row(ws)
     row = headers_row + 1
+    
+    employee_discrepancies = {}
     
     while True:
         nombre_val = ws.cell(row=row, column=nombre_col).value
@@ -640,6 +698,14 @@ def recompile_active_period_incidences(wb, schema):
         
         if nombre_val:
             cod_id = clean_employee_id(cod_val) if cod_val is not None else f"TEMP_{row}"
+            
+            fa_activo_col = get_field_index(schema, "fondo_ahorro_activo")
+            fa_activo_val = ws.cell(row=row, column=fa_activo_col).value if fa_activo_col else None
+            is_fa_activo = False
+            if fa_activo_val:
+                val_str = str(fa_activo_val).strip().upper()
+                if val_str in ["SI", "SÍ", "TRUE", "1"]:
+                    is_fa_activo = True
             
             # Calculate and set dynamic calculations for vacations, antiquity and Factor de Integración
             if ingreso_col:
@@ -697,6 +763,11 @@ def recompile_active_period_incidences(wb, schema):
                 ws.cell(row=row, column=descuento_col).value = None
             if observaciones_col:
                 ws.cell(row=row, column=observaciones_col).value = None
+            
+            # Formulate SDI
+            if sdi_col and salario_diario_letter and factor_integracion_letter:
+                ws.cell(row=row, column=sdi_col).value = f"={salario_diario_letter}{row}*{factor_integracion_letter}{row}"
+                
             if neto_quincenal_col and bruto_mensual_neto_letter:
                 ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
             
@@ -708,7 +779,10 @@ def recompile_active_period_incidences(wb, schema):
             if vales_col:
                 ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}"
             if fa_col:
-                ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
+                if is_fa_activo:
+                    ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
+                else:
+                    ws.cell(row=row, column=fa_col).value = None
                 
             # Reset dynamic deductions in Hoja1
             for col in schema.get("columns", []):
@@ -733,10 +807,10 @@ def recompile_active_period_incidences(wb, schema):
                 if neto_quincenal_col and bruto_mensual_neto_letter:
                     if faltas > 0:
                         if is_monthly:
-                            dias_laborados = dias_periodo - faltas
+                            dias_laborados = max(0, dias_periodo - faltas)
                             ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/{dias_periodo}*{dias_laborados}"
                         else:
-                            dias_laborados = 15 - faltas
+                            dias_laborados = max(0, 15 - faltas)
                             ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2/15*{dias_laborados}"
                     else:
                         ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
@@ -778,7 +852,10 @@ def recompile_active_period_incidences(wb, schema):
                     if ajuste_fa is not None:
                         ws.cell(row=row, column=fa_col).value = ajuste_fa
                     else:
-                        ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
+                        if is_fa_activo:
+                            ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
+                        else:
+                            ws.cell(row=row, column=fa_col).value = None
                     
                 # Write dynamic deductions back to Hoja1
                 for col in schema.get("columns", []):
@@ -786,8 +863,146 @@ def recompile_active_period_incidences(wb, schema):
                         val = emp_agg.get(col.get("field"), 0.0)
                         if val > 0:
                             ws.cell(row=row, column=col.get("index")).value = val
+
+            # Python-based Expected value calculations for discrepancy comparison
+            if original_values and row in original_values:
+                orig_row_data = original_values[row]
+                row_discrepancies = []
+                
+                # Fetch inputs
+                salario_diario_val = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "salario_diario")).value) if get_field_index(schema, "salario_diario") else 0.0
+                fi_val = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "factor_integracion")).value) if get_field_index(schema, "factor_integracion") else 0.0
+                
+                expected_sdi = round(salario_diario_val * fi_val, 2)
+                expected_sueldo_nominal = round(salario_diario_val * dias_mes, 2)
+                
+                if cod_id in agg:
+                    emp_agg = agg[cod_id]
+                    faltas = emp_agg["faltas"]
+                    retardos = emp_agg["retardos"]
+                    punt = emp_agg["puntualidad"]
+                    asist = emp_agg["asistencia"]
+                    forzar_asist = emp_agg.get("forzar_asistencia", "NO") == "SI"
+                    forzar_punt = emp_agg.get("forzar_puntualidad", "NO") == "SI"
+                    forzar_val = emp_agg.get("forzar_vales", "NO") == "SI"
+                    ajuste_vales = emp_agg.get("ajuste_vales")
+                    ajuste_fa = emp_agg.get("ajuste_fondo_ahorro")
+                else:
+                    faltas = 0
+                    retardos = 0
+                    punt = "SI"
+                    asist = "SI"
+                    forzar_asist = False
+                    forzar_punt = False
+                    forzar_val = False
+                    ajuste_vales = None
+                    ajuste_fa = None
+                
+                if (punt == "NO" or retardos >= 3) and not forzar_punt:
+                    expected_puntualidad = 0.0
+                else:
+                    expected_puntualidad = round(expected_sdi * 0.1 * dias_mes, 2)
+                    
+                if (asist == "NO" or faltas > 0) and not forzar_asist:
+                    expected_asistencia = 0.0
+                else:
+                    expected_asistencia = round(expected_sdi * 0.1 * dias_mes, 2)
+                    
+                if ajuste_vales is not None:
+                    expected_vales = ajuste_vales
+                else:
+                    effective_faltas = 0 if forzar_val else faltas
+                    base_vales = uma * (vales_pct / 100.0) * dias_mes
+                    if effective_faltas > 0:
+                        if is_monthly:
+                            expected_vales = base_vales / dias_periodo * (dias_periodo - effective_faltas)
+                        else:
+                            expected_vales = base_vales / 15.0 * (15.0 - effective_faltas)
+                    else:
+                        expected_vales = base_vales
+                    expected_vales = round(expected_vales, 2)
+                    
+                if not is_fa_activo:
+                    expected_fa = 0.0
+                elif ajuste_fa is not None:
+                    expected_fa = ajuste_fa
+                else:
+                    expected_fa = min(expected_sueldo_nominal * (fa_pct / 100.0), 1.3 * uma * dias_mes)
+                    expected_fa = round(expected_fa, 2)
+                    
+                # Expected Neto
+                asimilados = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "asimilados")).value) if get_field_index(schema, "asimilados") else 0.0
+                gasolina = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "gasolina")).value) if get_field_index(schema, "gasolina") else 0.0
+                socio = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "socio")).value) if get_field_index(schema, "socio") else 0.0
+                efectivo = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "efectivo")).value) if get_field_index(schema, "efectivo") else 0.0
+                facturado = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "facturado")).value) if get_field_index(schema, "facturado") else 0.0
+                deuda_carro = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "deuda_carro")).value) if get_field_index(schema, "deuda_carro") else 0.0
+                
+                descuento_adicional = float(emp_agg.get("descuento_adicional", 0.0)) if cod_id in agg else 0.0
+                other_deductions_sum = 0.0
+                for col in schema.get("columns", []):
+                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                        if cod_id in agg:
+                            other_deductions_sum += float(emp_agg.get(col.get("field"), 0.0))
+                        else:
+                            other_deductions_sum += to_float_safe(ws.cell(row=row, column=col.get("index")).value)
+                            
+                total_deductions = descuento_adicional + other_deductions_sum
+                
+                expected_percepcion_sueldos = expected_sueldo_nominal + expected_puntualidad + expected_asistencia + expected_vales + expected_fa
+                expected_bruto_mensual = expected_percepcion_sueldos + asimilados + gasolina + socio + efectivo + facturado + deuda_carro
+                expected_bruto_mensual_neto = expected_bruto_mensual - total_deductions
+                
+                if faltas > 0:
+                    if is_monthly:
+                        dias_laborados = max(0, dias_periodo - faltas)
+                        expected_neto = expected_bruto_mensual_neto / dias_periodo * dias_laborados
+                    else:
+                        dias_laborados = max(0, 15 - faltas)
+                        expected_neto = expected_bruto_mensual_neto / 2.0 / 15.0 * dias_laborados
+                else:
+                    expected_neto = expected_bruto_mensual_neto if is_monthly else expected_bruto_mensual_neto / 2.0
+                    
+                expected_neto = round(expected_neto, 2)
+                
+                discrepancy_fill = openpyxl.styles.PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                
+                def check_field_discrepancy(field_name, expected_val, col_index):
+                    if not col_index:
+                        return
+                    orig_val = orig_row_data.get(field_name)
+                    if has_diff(orig_val, expected_val):
+                        row_discrepancies.append(field_name)
+                        ws.cell(row=row, column=col_index).fill = discrepancy_fill
+                    else:
+                        ws.cell(row=row, column=col_index).fill = openpyxl.styles.PatternFill(fill_type=None)
+                
+                check_field_discrepancy("sdi", expected_sdi, sdi_col)
+                check_field_discrepancy("puntualidad", expected_puntualidad, puntualidad_col)
+                check_field_discrepancy("asistencia", expected_asistencia, asistencia_col)
+                check_field_discrepancy("vales_despensa", expected_vales, vales_col)
+                
+                orig_fa = orig_row_data.get("fondo_ahorro")
+                orig_fa_val = orig_fa.get("val") if orig_fa else None
+                if is_fa_activo or (orig_fa_val is not None and to_float_safe(orig_fa_val) > 0.01):
+                    check_field_discrepancy("fondo_ahorro", expected_fa, fa_col)
+                else:
+                    if fa_col:
+                        ws.cell(row=row, column=fa_col).fill = openpyxl.styles.PatternFill(fill_type=None)
+                        
+                check_field_discrepancy("neto_quincenal", expected_neto, neto_quincenal_col)
+                
+                if row_discrepancies:
+                    employee_discrepancies[cod_id] = row_discrepancies
+            else:
+                # Clear colors
+                for c_idx in [sdi_col, puntualidad_col, asistencia_col, vales_col, fa_col, neto_quincenal_col]:
+                    if c_idx:
+                        ws.cell(row=row, column=c_idx).fill = openpyxl.styles.PatternFill(fill_type=None)
                     
         row += 1
+        
+    return employee_discrepancies
 
 def upgrade_model_name(model_name):
     if not model_name:
@@ -1716,13 +1931,21 @@ def inject_formulas_dynamically(ws, row, schema):
     if not ded_sub_str:
         ded_sub_str = f"-{L('descuento_adicional')}{row}"
  
+    fa_activo_col = get_field_index(schema, "fondo_ahorro_activo")
+    fa_activo_val = ws.cell(row=row, column=fa_activo_col).value if fa_activo_col else None
+    is_fa_activo = False
+    if fa_activo_val:
+        val_str = str(fa_activo_val).strip().upper()
+        if val_str in ["SI", "SÍ", "TRUE", "1"]:
+            is_fa_activo = True
+
     formulas = {
         "sdi": f"={L('salario_diario')}{row}*{L('factor_integracion')}{row}",
         "sueldo_nominal": f"={L('salario_diario')}{row}*{dias_mes_cell}",
         "puntualidad": f"={L('sdi')}{row}*0.1*{dias_mes_cell}",
         "asistencia": f"={L('sdi')}{row}*0.1*{dias_mes_cell}",
         "vales_despensa": f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}",
-        "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",MIN({L("sueldo_nominal")}{row}*({fa_pct_cell}/100),1.3*{uma_cell}*{dias_mes_cell}),0)',
+        "fondo_ahorro": f'=IF({L("fondo_ahorro_activo")}{row}="SI",MIN({L("sueldo_nominal")}{row}*({fa_pct_cell}/100),1.3*{uma_cell}*{dias_mes_cell}),0)' if is_fa_activo else None,
         "percepcion_sueldos": f"=SUM({L('sueldo_nominal')}{row}:{L('fondo_ahorro')}{row})",
         "bruto_mensual": f"=SUM({L('percepcion_sueldos')}{row}:{L('deuda_carro')}{row})",
         "bruto_quincenal": f"={L('bruto_mensual')}{row}" if is_monthly else f"={L('bruto_mensual')}{row}/2",
@@ -3041,10 +3264,70 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": f"Database file not found at {excel_path}"}, 500)
                 return
 
+            # Extract original values for discrepancy check before overwriting them in compilation
+            original_values = {}
+            try:
+                wb_orig_v = load_workbook_agnostic(excel_path, data_only=True)
+                wb_orig_f = load_workbook_agnostic(excel_path, data_only=False)
+                ws_orig_v = wb_orig_v.active
+                ws_orig_f = wb_orig_f.active
+                
+                headers_row_orig = find_headers_row(ws_orig_v)
+                row_orig = headers_row_orig + 1
+                
+                col_indices = {}
+                for col_name in ["sdi", "puntualidad", "asistencia", "vales_despensa", "fondo_ahorro", "neto_quincenal", "id"]:
+                    col_indices[col_name] = get_field_index(schema, col_name)
+                
+                id_col_idx = col_indices["id"]
+                if id_col_idx:
+                    while True:
+                        nombre_val = ws_orig_v.cell(row=row_orig, column=get_field_index(schema, "nombre")).value
+                        cod_val = ws_orig_v.cell(row=row_orig, column=id_col_idx).value
+                        
+                        if nombre_val and any(x in str(nombre_val).upper() for x in ["TOTAL", "SUMA"]):
+                            break
+                        if nombre_val is None and cod_val is None:
+                            has_more = False
+                            for i in range(1, 4):
+                                n = ws_orig_v.cell(row=row_orig+i, column=get_field_index(schema, "nombre")).value
+                                c = ws_orig_v.cell(row=row_orig+i, column=id_col_idx).value
+                                if n or c:
+                                    has_more = True
+                            if not has_more:
+                                break
+                        
+                        if nombre_val:
+                            cod_id = clean_employee_id(cod_val) if cod_val is not None else f"TEMP_{row_orig}"
+                            
+                            def get_orig_val(field_name):
+                                c_idx = col_indices[field_name]
+                                if not c_idx:
+                                    return None
+                                val_v = ws_orig_v.cell(row=row_orig, column=c_idx).value
+                                val_f = ws_orig_f.cell(row=row_orig, column=c_idx).value
+                                return {"val": val_v, "formula": val_f}
+                                
+                            original_values[row_orig] = {
+                                "id": cod_id,
+                                "sdi": get_orig_val("sdi"),
+                                "puntualidad": get_orig_val("puntualidad"),
+                                "asistencia": get_orig_val("asistencia"),
+                                "vales_despensa": get_orig_val("vales_despensa"),
+                                "fondo_ahorro": get_orig_val("fondo_ahorro"),
+                                "neto_quincenal": get_orig_val("neto_quincenal"),
+                            }
+                        row_orig += 1
+                wb_orig_v.close()
+                wb_orig_f.close()
+            except Exception as orig_err:
+                print("Error extracting original values for discrepancy detection:", orig_err)
+
             # 1. Recompile incidences in Excel first to ensure calculations are up-to-date for the active period
+            employee_discrepancies = {}
             try:
                 wb_comp = load_workbook_agnostic(excel_path, data_only=False)
-                recompile_active_period_incidences(wb_comp, schema)
+                employee_discrepancies = recompile_active_period_incidences(wb_comp, schema, original_values=original_values)
                 save_workbook_agnostic(wb_comp, excel_path)
                 wb_comp.close()
             except Exception as comp_err:
@@ -3216,7 +3499,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                         "forzar_puntualidad": emp_agg.get("forzar_puntualidad", "NO"),
                         "forzar_vales": emp_agg.get("forzar_vales", "NO"),
                         "ajuste_vales": emp_agg.get("ajuste_vales"),
-                        "ajuste_fondo_ahorro": emp_agg.get("ajuste_fondo_ahorro")
+                        "ajuste_fondo_ahorro": emp_agg.get("ajuste_fondo_ahorro"),
+                        "discrepancies": employee_discrepancies.get(cod_id, [])
                     }
                     for col in schema["columns"]:
                         f = col["field"]
