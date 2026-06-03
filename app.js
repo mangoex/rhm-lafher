@@ -1671,52 +1671,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const dbPathInput = document.getElementById("cfg-db-path");
             if (dbPathInput) {
               dbPathInput.value = data.selected_path;
-              
-              const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
-              const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
-              const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
-              const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
-              const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
-              const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
-              
-              const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.5-flash";
-              const ai_model = modelSelectVal === "custom" 
-                ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.5-flash")
-                : modelSelectVal;
-              const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
-
-              showToast("Guardando ruta de archivo y cargando datos...", "info");
-
-              fetch("/api/config", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  uma: uma,
-                  vales_pct: vales_pct,
-                  dias_mes: dias_mes,
-                  fa_pct: fa_pct,
-                  aguinaldo: aguinaldo,
-                  prima: prima,
-                  db_path: data.selected_path,
-                  ai_provider: ai_provider,
-                  ai_model: ai_model
-                })
-              })
-                .then(res => res.json())
-                .then(resData => {
-                  if (resData.error) {
-                    showToast(resData.error, "error");
-                    return;
-                  }
-                  
-                  showToast("Archivo '" + data.selected_path.split(/[/\\]/).pop() + "' conectado y cargado con éxito.", "success");
-                  loadState();
-                })
-                .catch(err => {
-                  console.error("Error al guardar ruta seleccionada:", err);
-                  showToast("Error al cargar la base de datos seleccionada.", "error");
-                });
             }
+            openSchemaValidationModal(data.selected_path);
           } else {
             showToast("Selección de archivo cancelada.", "info");
           }
@@ -3022,7 +2978,435 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Hide tooltip on scroll to prevent it from floating around detached
+  // Hide tooltip on scroll to prevent it from floating around detached
   window.addEventListener("scroll", hideCellTooltip, { passive: true });
+
+  // SCHEMA VALIDATION AND INTERACTIVE AUDITING WORKFLOW
+  let activeSchemaPath = null;
+  let activeColumnsData = [];
+
+  function openSchemaValidationModal(excelPath) {
+    activeSchemaPath = excelPath;
+    const modal = document.getElementById("modal-schema-validation");
+    if (!modal) return;
+    
+    modal.style.display = "flex";
+    
+    const columnsList = document.getElementById("schema-columns-list");
+    const statusSummary = document.getElementById("schema-status-summary");
+    
+    columnsList.innerHTML = `
+      <div style="text-align: center; padding: 3rem 0; width: 100%;">
+        <div style="width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Auditoría contable y mapeo de columnas con Asistente IA...</p>
+      </div>
+    `;
+    statusSummary.innerHTML = "";
+    
+    document.getElementById("schema-confirm-btn").disabled = true;
+    
+    fetch("/api/schema/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: excelPath })
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => {
+            throw new Error(errData.error || "Error de validación del archivo");
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        activeColumnsData = data.columns;
+        renderSchemaValidation(data);
+      })
+      .catch(err => {
+        showToast(err.message, "error");
+        modal.style.display = "none";
+      });
+  }
+
+  function renderSchemaValidation(data) {
+    const summary = data.summary;
+    const columnsList = document.getElementById("schema-columns-list");
+    const statusSummary = document.getElementById("schema-status-summary");
+    const confirmBtn = document.getElementById("schema-confirm-btn");
+    
+    let alertClass = "success";
+    let statusText = `Auditoría completada. Fórmulas Correctas: <strong>${summary.correct_count}</strong> | Sugeridas: <strong>${summary.recommended_count}</strong>`;
+    
+    if (summary.incorrect_count > 0) {
+      alertClass = "danger";
+      statusText = `¡Atención! Se detectaron <strong>${summary.incorrect_count}</strong> fórmulas incorrectas. Debes corregirlas antes de continuar.`;
+    } else if (summary.recommended_count > 0) {
+      alertClass = "warning";
+      statusText = `Auditoría completada con <strong>${summary.recommended_count}</strong> fórmulas recomendadas por el Asistente.`;
+    }
+    
+    statusSummary.className = `alert-status ${alertClass}`;
+    
+    if (alertClass === "danger") {
+      statusSummary.style.background = "rgba(239, 68, 68, 0.1)";
+      statusSummary.style.border = "1px solid rgba(239, 68, 68, 0.2)";
+      statusSummary.style.color = "#f87171";
+    } else if (alertClass === "warning") {
+      statusSummary.style.background = "rgba(245, 158, 11, 0.1)";
+      statusSummary.style.border = "1px solid rgba(245, 158, 11, 0.2)";
+      statusSummary.style.color = "#fbbf24";
+    } else {
+      statusSummary.style.background = "rgba(16, 185, 129, 0.1)";
+      statusSummary.style.border = "1px solid rgba(16, 185, 129, 0.2)";
+      statusSummary.style.color = "#34d399";
+    }
+    
+    statusSummary.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-weight: 500;">${statusText}</span>
+      </div>
+    `;
+    
+    columnsList.innerHTML = "";
+    
+    data.columns.forEach((col) => {
+      const card = document.createElement("div");
+      card.className = `schema-col-card ${col.status}`;
+      card.dataset.index = col.index;
+      
+      const badgeText = {
+        "correct": "Fórmula Correcta",
+        "incorrect": "Fórmula Incorrecta",
+        "recommended": "Fórmula Sugerida",
+        "direct": "Entrada Directa"
+      }[col.status];
+      
+      const categories = [
+        { value: "metadata", label: "Metadatos / Info General" },
+        { value: "nominal_imss", label: "Nominal IMSS (Base)" },
+        { value: "others", label: "Otros Conceptos (Variables)" },
+        { value: "deduction", label: "Deducciones / Incidencias" },
+        { value: "calculated", label: "Cálculo con Fórmula" }
+      ];
+      
+      let catOptionsHtml = categories.map(cat => 
+        `<option value="${cat.value}" ${col.category === cat.value ? 'selected' : ''}>${cat.label}</option>`
+      ).join("");
+
+      let formulaBlock = "";
+      if (col.status !== "direct") {
+        formulaBlock = `
+          <div class="form-group" style="margin-top: 10px; margin-bottom: 0;">
+            <label style="font-size:0.75rem; color: var(--text-muted); font-weight:600;">Fórmula en Excel para Fila 6</label>
+            <div class="schema-formula-input-group">
+              <input type="text" class="formula-field" value="${col.formula || ''}" placeholder="Ej: =AB6/2" style="flex-grow:1; margin:0;" data-col-idx="${col.index}">
+              ${col.status === "recommended" && col.recommended_formula ? `
+                <button type="button" class="btn btn-secondary btn-sm btn-apply-suggested" style="margin:0; padding: 6px 12px; white-space:nowrap; border:1px solid var(--primary); color:var(--primary); background: rgba(59, 130, 246, 0.05);" data-col-idx="${col.index}">
+                  Aplicar sugerencia
+                </button>
+              ` : ''}
+              ${col.status === "incorrect" && col.recommended_formula ? `
+                <button type="button" class="btn btn-secondary btn-sm btn-apply-suggested" style="margin:0; padding: 6px 12px; white-space:nowrap; border:1px solid var(--success); color:var(--success); background: rgba(16, 185, 129, 0.05);" data-col-idx="${col.index}">
+                  Auto-corregir
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }
+      
+      let explainBlock = "";
+      if (col.reason) {
+        explainBlock = `
+          <div class="schema-explain-box ${col.status}">
+            <strong>Análisis del Asistente:</strong> ${col.reason}
+            ${col.recommended_formula ? `<br><strong style="margin-top: 4px; display:inline-block;">Fórmula propuesta:</strong> <code>${col.recommended_formula}</code>` : ''}
+          </div>
+        `;
+      }
+      
+      card.innerHTML = `
+        <div class="col-meta-panel" style="display:flex; flex-direction:column; gap:8px; border-right: 1px solid rgba(255,255,255,0.05); padding-right:1rem; min-height: 100%;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+            <span style="font-family:monospace; font-weight:700; font-size:1rem; color: var(--primary);">[Col. ${col.letter}] ${col.header}</span>
+            <span class="badge ${col.status}" style="font-size:0.65rem; padding: 2px 6px;">${badgeText}</span>
+          </div>
+          
+          <div class="form-group" style="margin-top:5px; margin-bottom: 0;">
+            <label style="font-size:0.75rem; color: var(--text-muted);">Categoría en Sistema</label>
+            <select class="category-select" data-col-idx="${col.index}" style="width:100%;">
+              ${catOptionsHtml}
+            </select>
+          </div>
+        </div>
+        
+        <div class="col-details-panel" style="display:flex; flex-direction:column; gap:8px; width: 100%;">
+          <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size:0.75rem; color: var(--text-muted);">Etiqueta en Sistema</label>
+              <input type="text" class="label-field" value="${col.label || ''}" style="margin:0;" data-col-idx="${col.index}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size:0.75rem; color: var(--text-muted);">Descripción / Función</label>
+              <input type="text" class="desc-field" value="${col.description || ''}" style="margin:0;" data-col-idx="${col.index}">
+            </div>
+          </div>
+          
+          ${formulaBlock}
+          ${explainBlock}
+        </div>
+      `;
+      
+      columnsList.appendChild(card);
+    });
+    
+    // Bind click events on suggestions buttons
+    columnsList.querySelectorAll(".btn-apply-suggested").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const colIdx = parseInt(btn.dataset.colIdx);
+        const col = activeColumnsData.find(c => c.index === colIdx);
+        if (col && col.recommended_formula) {
+          const input = columnsList.querySelector(`input.formula-field[data-col-idx="${colIdx}"]`);
+          if (input) {
+            input.value = col.recommended_formula;
+            col.formula = col.recommended_formula;
+            col.status = "correct";
+            col.reason = "Fórmula sugerida aplicada con éxito.";
+            
+            // Re-render validation locally
+            renderSchemaValidation({ columns: activeColumnsData, summary: computeSummaryLocally(activeColumnsData) });
+          }
+        }
+      });
+    });
+    
+    // Update data structure on edits
+    columnsList.querySelectorAll(".category-select").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const colIdx = parseInt(sel.dataset.colIdx);
+        const col = activeColumnsData.find(c => c.index === colIdx);
+        if (col) {
+          col.category = sel.value;
+          if (col.category === "metadata" || col.category === "nominal_imss" || col.category === "others") {
+            col.status = "direct";
+            col.formula = null;
+          } else if (col.status === "direct") {
+            col.status = "recommended";
+          }
+          renderSchemaValidation({ columns: activeColumnsData, summary: computeSummaryLocally(activeColumnsData) });
+        }
+      });
+    });
+    
+    columnsList.querySelectorAll(".label-field").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const colIdx = parseInt(inp.dataset.colIdx);
+        const col = activeColumnsData.find(c => c.index === colIdx);
+        if (col) col.label = inp.value;
+      });
+    });
+    
+    columnsList.querySelectorAll(".desc-field").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const colIdx = parseInt(inp.dataset.colIdx);
+        const col = activeColumnsData.find(c => c.index === colIdx);
+        if (col) col.description = inp.value;
+      });
+    });
+
+    columnsList.querySelectorAll(".formula-field").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const colIdx = parseInt(inp.dataset.colIdx);
+        const col = activeColumnsData.find(c => c.index === colIdx);
+        if (col) {
+          col.formula = inp.value;
+          if (!col.formula) {
+            col.status = col.category === "calculated" ? "recommended" : "direct";
+          }
+        }
+      });
+    });
+    
+    if (window.lucide) lucide.createIcons();
+    confirmBtn.disabled = summary.incorrect_count > 0;
+  }
+
+  function computeSummaryLocally(columns) {
+    const correct_count = columns.filter(c => c.status === "correct").length;
+    const incorrect_count = columns.filter(c => c.status === "incorrect").length;
+    const recommended_count = columns.filter(c => c.status === "recommended").length;
+    const direct_count = columns.filter(c => c.status === "direct").length;
+    return {
+      correct_count,
+      incorrect_count,
+      recommended_count,
+      direct_count,
+      has_minimal_fields: true
+    };
+  }
+
+  const schemaCancelBtn = document.getElementById("schema-cancel-btn");
+  const schemaRevalidateBtn = document.getElementById("schema-revalidate-btn");
+  const schemaConfirmBtn = document.getElementById("schema-confirm-btn");
+  const schemaModal = document.getElementById("modal-schema-validation");
+
+  if (schemaCancelBtn) {
+    schemaCancelBtn.addEventListener("click", () => {
+      schemaModal.style.display = "none";
+      showToast("Importación de base de datos cancelada.", "warning");
+    });
+  }
+
+  if (schemaRevalidateBtn) {
+    schemaRevalidateBtn.addEventListener("click", () => {
+      if (!activeSchemaPath) return;
+      showToast("Revalidando mapeo y fórmulas...", "info");
+      
+      const columnsList = document.getElementById("schema-columns-list");
+      activeColumnsData.forEach(col => {
+        const formulaInput = columnsList.querySelector(`input.formula-field[data-col-idx="${col.index}"]`);
+        if (formulaInput) {
+          col.formula = formulaInput.value.trim() || null;
+        }
+        const labelInput = columnsList.querySelector(`input.label-field[data-col-idx="${col.index}"]`);
+        if (labelInput) {
+          col.label = labelInput.value.trim() || col.header;
+        }
+        const descInput = columnsList.querySelector(`input.desc-field[data-col-idx="${col.index}"]`);
+        if (descInput) {
+          col.description = descInput.value.trim() || "";
+        }
+        const catSelect = columnsList.querySelector(`select.category-select[data-col-idx="${col.index}"]`);
+        if (catSelect) {
+          col.category = catSelect.value;
+        }
+      });
+      
+      columnsList.innerHTML = `
+        <div style="text-align: center; padding: 3rem 0; width: 100%;">
+          <div style="width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">El Asistente está revalidando tus fórmulas...</p>
+        </div>
+      `;
+      
+      fetch("/api/schema/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: activeSchemaPath, columns: activeColumnsData })
+      })
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(errData => {
+              throw new Error(errData.error || "Error de validación");
+            });
+          }
+          return res.json();
+        })
+        .then(data => {
+          activeColumnsData = data.columns;
+          renderSchemaValidation(data);
+          showToast("Fórmulas revalidadas con éxito.", "success");
+        })
+        .catch(err => {
+          showToast(err.message, "error");
+          // Re-render local in case server validate failed
+          renderSchemaValidation({ columns: activeColumnsData, summary: computeSummaryLocally(activeColumnsData) });
+        });
+    });
+  }
+
+  if (schemaConfirmBtn) {
+    schemaConfirmBtn.addEventListener("click", () => {
+      if (!activeSchemaPath) return;
+      
+      // Update values from fields once more
+      const columnsList = document.getElementById("schema-columns-list");
+      activeColumnsData.forEach(col => {
+        const formulaInput = columnsList.querySelector(`input.formula-field[data-col-idx="${col.index}"]`);
+        if (formulaInput) {
+          col.formula = formulaInput.value.trim() || null;
+        }
+        const labelInput = columnsList.querySelector(`input.label-field[data-col-idx="${col.index}"]`);
+        if (labelInput) {
+          col.label = labelInput.value.trim() || col.header;
+        }
+        const descInput = columnsList.querySelector(`input.desc-field[data-col-idx="${col.index}"]`);
+        if (descInput) {
+          col.description = descInput.value.trim() || "";
+        }
+        const catSelect = columnsList.querySelector(`select.category-select[data-col-idx="${col.index}"]`);
+        if (catSelect) {
+          col.category = catSelect.value;
+        }
+      });
+      
+      showToast("Escribiendo fórmulas contables en Excel...", "info");
+      
+      fetch("/api/schema/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: activeSchemaPath,
+          columns: activeColumnsData
+        })
+      })
+        .then(res => res.json())
+        .then(confirmRes => {
+          if (confirmRes.error) {
+            showToast(confirmRes.error, "error");
+            return;
+          }
+          
+          // Now save config to link the database permanently
+          const uma = parseFloat(document.getElementById("cfg-uma").value) || 117.31;
+          const vales_pct = parseFloat(document.getElementById("cfg-vales-pct").value) || 40;
+          const dias_mes = parseFloat(document.getElementById("cfg-dias-mes").value) || 30.4;
+          const fa_pct = parseFloat(document.getElementById("cfg-fa-pct").value) || 11;
+          const aguinaldo = parseFloat(document.getElementById("cfg-aguinaldo").value) || 15;
+          const prima = parseFloat(document.getElementById("cfg-prima").value) || 25;
+          
+          const modelSelectVal = document.getElementById("cfg-ai-model-select") ? document.getElementById("cfg-ai-model-select").value : "gemini-2.5-flash";
+          const ai_model = modelSelectVal === "custom" 
+            ? (document.getElementById("cfg-ai-model-custom") ? document.getElementById("cfg-ai-model-custom").value.trim() : "gemini-2.5-flash")
+            : modelSelectVal;
+          const ai_provider = document.getElementById("cfg-ai-provider") ? document.getElementById("cfg-ai-provider").value : "google";
+
+          fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              uma: uma,
+              vales_pct: vales_pct,
+              dias_mes: dias_mes,
+              fa_pct: fa_pct,
+              aguinaldo: aguinaldo,
+              prima: prima,
+              db_path: activeSchemaPath,
+              ai_provider: ai_provider,
+              ai_model: ai_model
+            })
+          })
+            .then(res => res.json())
+            .then(resData => {
+              if (resData.error) {
+                showToast(resData.error, "error");
+                return;
+              }
+              
+              showToast("Archivo '" + activeSchemaPath.split(/[/\\]/).pop() + "' conectado, recalculado y cargado con éxito.", "success");
+              schemaModal.style.display = "none";
+              loadState();
+            })
+            .catch(err => {
+              console.error("Error saving path to config:", err);
+              showToast("Error al vincular el archivo seleccionado.", "error");
+            });
+        })
+        .catch(err => {
+          showToast(err.message || "Error al confirmar esquema.", "error");
+        });
+    });
+  }
 
 });
 

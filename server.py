@@ -1724,7 +1724,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Admin-only POST endpoints
-        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/companies"]:
+        if path_only in ["/api/config", "/api/users", "/api/select-file", "/api/select-rules-file", "/api/upload-database", "/api/upload-rules", "/api/companies", "/api/schema/validate", "/api/schema/confirm"]:
             if session["role"] != "admin":
                 self.send_json({"error": "Prohibido. Se requieren permisos de administrador."}, 403)
                 return
@@ -1758,6 +1758,10 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 self.save_config(body)
             elif path_only == "/api/schema/clarify":
                 self.save_clarify(body)
+            elif path_only == "/api/schema/validate":
+                self.schema_validate_endpoint(body)
+            elif path_only == "/api/schema/confirm":
+                self.schema_confirm_endpoint(body)
             elif path_only == "/api/payroll/explain":
                 self.explain_payroll(body)
             elif path_only == "/api/users":
@@ -2240,6 +2244,471 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             tb = traceback.format_exc()
             print("Error in upload_database_endpoint:\n", tb)
             self.send_json({"error": f"Error al subir base de datos: {e}", "details": tb}, 500)
+
+# HELPER FUNCTIONS FOR INTERACTIVE SCHEMA VERIFICATION AND FORMULA AUDITING
+def identify_critical_headers(headers):
+    nombre_idx = None
+    sdi_idx = None
+    
+    nombre_kws = ["nombre completo", "nombre", "empleado", "colaborador", "trabajador", "nombre completo / asimilados"]
+    sdi_kws = ["sdi", "salario diario integrado", "salario integrado", "integrado", "factor de integracion", "factor integracion", "s.d.i.", "factor integracion imss"]
+    
+    for i, h in enumerate(headers):
+        if not h:
+            continue
+        h_clean = str(h).lower().strip()
+        
+        # Check exact matches first
+        if h_clean == "nombre completo" or h_clean == "nombre":
+            nombre_idx = i + 1
+        elif h_clean == "sdi" or h_clean == "salario diario integrado" or h_clean == "factor integracion imss":
+            sdi_idx = i + 1
+            
+    # Fallback to fuzzy keyword search
+    if nombre_idx is None:
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            h_clean = str(h).lower().strip()
+            if any(kw in h_clean for kw in nombre_kws):
+                nombre_idx = i + 1
+                break
+                
+    if sdi_idx is None:
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            h_clean = str(h).lower().strip()
+            if any(kw in h_clean for kw in sdi_kws):
+                sdi_idx = i + 1
+                break
+                
+    return nombre_idx, sdi_idx
+
+def validate_schema_formulas_locally(columns):
+    tot_letter = "AL"
+    tom_letter = "AM"
+    faltas_letter = "AH"
+    bruto_mensual_letter = "AB"
+    bruto_mensual_2_letter = "AF"
+    
+    for col in columns:
+        f = col.get("field")
+        if f == "vacaciones_totales":
+            tot_letter = col.get("letter")
+        elif f == "vacaciones_tomadas":
+            tom_letter = col.get("letter")
+        elif f == "faltas":
+            faltas_letter = col.get("letter")
+        elif f == "sueldo_bruto_mensual":
+            bruto_mensual_letter = col.get("letter")
+        elif f == "sueldo_bruto_mensual_2":
+            bruto_mensual_2_letter = col.get("letter")
+
+    for col in columns:
+        f = col.get("field")
+        cat = col.get("category")
+        formula = col.get("formula")
+        letter = col.get("letter")
+        
+        col["status"] = "direct"
+        col["reason"] = "Campo de entrada directa sin fórmula."
+        col["recommended_formula"] = None
+        
+        if f == "vacaciones_restantes":
+            expected = f"={tot_letter}6-{tom_letter}6"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de vacaciones restantes (restando tomadas de totales)."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba que restara vacaciones tomadas de las totales: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda calcular automáticamente restando las vacaciones tomadas de las totales."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_mensual":
+            expected = "=SUM(U6:AA6)"
+            if formula:
+                if str(formula).upper().startswith("=SUM"):
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta para sumar conceptos de percepciones."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Se esperaba una sumatoria de percepciones (ej: '{expected}')."
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda sumar automáticamente todas las percepciones mensuales."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_quincenal_base":
+            expected = f"={bruto_mensual_letter}6/2"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de bruto quincenal base (mensual dividido entre 2)."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba dividir el bruto mensual entre 2: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda dividir el sueldo bruto mensual entre 2."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_mensual_2":
+            ded_letter = "AE"
+            for c in columns:
+                if c.get("field") == "descuento_adicional":
+                    ded_letter = c.get("letter")
+            expected = f"={bruto_mensual_letter}6-{ded_letter}6"
+            
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de sueldo neto mensual después de deducciones."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba restar deducciones del bruto mensual: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda restar deducciones del sueldo bruto mensual."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_quincenal_2":
+            expected = f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean or f"15-{faltas_letter}6" in formula_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de neto quincenal (descuenta proporcionalmente las faltas)."
+                elif "FALTAS" in formula_clean or faltas_letter in formula_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula de neto quincenal con descuento de faltas validada."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. No descuenta las faltas del periodo. Se recomienda: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda calcular el neto quincenal descontando las faltas del periodo."
+                col["recommended_formula"] = expected
+                
+        elif cat == "calculated":
+            if formula:
+                col["status"] = "correct"
+                col["reason"] = "Columna calculada con fórmula activa."
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Columna definida como calculada, pero no tiene fórmula activa."
+                
+    return columns
+
+
+# ENDPOINTS IN APIHANDLER CLASS
+    def schema_validate_endpoint(self, body):
+        try:
+            excel_path = body.get("path")
+            if not excel_path or not os.path.exists(excel_path):
+                self.send_json({"error": "No se especificó la ruta del archivo o el archivo no existe."}, 400)
+                return
+
+            schema = check_and_heal_schema()
+            req_cols = {int(c["index"]): c for c in body.get("columns", [])} if body.get("columns") else {}
+            
+            # Read spreadsheet headers and formulas
+            wb_v = load_workbook_agnostic(excel_path, data_only=True)
+            wb_f = load_workbook_agnostic(excel_path, data_only=False)
+            sheet_v = wb_v.active
+            sheet_f = wb_f.active
+            
+            headers_row = find_headers_row(sheet_v)
+            headers = []
+            for col_idx in range(1, sheet_v.max_column + 1):
+                val = sheet_v.cell(row=headers_row, column=col_idx).value
+                headers.append(val)
+                
+            wb_v.close()
+            
+            # Clean trailing nulls in headers
+            while headers and (headers[-1] is None or str(headers[-1]).strip() == ""):
+                headers.pop()
+                
+            nombre_idx, sdi_idx = identify_critical_headers(headers)
+            if not nombre_idx or not sdi_idx:
+                wb_f.close()
+                missing = []
+                if not nombre_idx: missing.append("Nombre Completo")
+                if not sdi_idx: missing.append("SDI / Salario Diario Integrado")
+                error_msg = f"El archivo Excel cargado no contiene los campos mínimos obligatorios para el cálculo de la prenómina: {', '.join(missing)}. Por favor, verifica el archivo y vuelve a intentarlo."
+                self.send_json({"error": error_msg, "has_minimal_fields": False}, 400)
+                return
+                
+            # Map current columns
+            schema_cols = {col.get("index"): col for col in schema.get("columns", [])}
+            columns_to_validate = []
+            
+            for col_idx in range(1, len(headers) + 1):
+                header_val = headers[col_idx - 1]
+                if header_val is None or str(header_val).strip() == "":
+                    continue
+                header_str = str(header_val).strip()
+                letter = openpyxl.utils.get_column_letter(col_idx)
+                
+                # Fetch mapped info or guess
+                mapped = schema_cols.get(col_idx, {})
+                field = mapped.get("field")
+                category = mapped.get("category", "metadata")
+                label = mapped.get("label", header_str)
+                type_val = mapped.get("type", "string")
+                editable = mapped.get("editable", True)
+                incidence_editable = mapped.get("incidence_editable", False)
+                
+                if not field:
+                    if col_idx == nombre_idx:
+                        field = "nombre"
+                        category = "metadata"
+                        type_val = "string"
+                        editable = True
+                        incidence_editable = False
+                    elif col_idx == sdi_idx:
+                        field = "sdi"
+                        category = "nominal_imss"
+                        type_val = "float"
+                        editable = True
+                        incidence_editable = False
+                    else:
+                        import re
+                        field = "".join(c for c in header_str.lower() if c.isalnum() or c == " ").strip().replace(" ", "_")
+                        if not field:
+                            field = f"col_{col_idx}"
+                        
+                        # Guess category
+                        if "vacaciones" in field:
+                            if "total" in field or "derecho" in field:
+                                field = "vacaciones_totales"
+                                category = "metadata"
+                                type_val = "float"
+                            elif "toma" in field:
+                                field = "vacaciones_tomadas"
+                                category = "metadata"
+                                type_val = "float"
+                            elif "resta" in field or "dispon" in field:
+                                field = "vacaciones_restantes"
+                                category = "calculated"
+                                type_val = "float"
+                        elif "bruto" in field:
+                            if "mensual" in field:
+                                field = "sueldo_bruto_mensual"
+                                category = "calculated"
+                                type_val = "float"
+                            elif "quincenal" in field:
+                                field = "sueldo_bruto_quincenal_base"
+                                category = "calculated"
+                                type_val = "float"
+                        elif "neto" in field or "quincenal_2" in field:
+                            field = "sueldo_bruto_quincenal_2"
+                            category = "calculated"
+                            type_val = "float"
+                        elif "falta" in field:
+                            field = "faltas"
+                            category = "deduction"
+                            type_val = "float"
+                            incidence_editable = True
+                        elif "retardo" in field:
+                            field = "retardos"
+                            category = "deduction"
+                            type_val = "float"
+                            incidence_editable = True
+                            
+                formula_str = None
+                if req_cols and col_idx in req_cols:
+                    formula_str = req_cols[col_idx].get("formula")
+                else:
+                    formula_val = sheet_f.cell(row=6, column=col_idx).value
+                    formula_str = str(formula_val) if formula_val and isinstance(formula_val, str) and formula_val.startswith("=") else None
+                
+                columns_to_validate.append({
+                    "index": col_idx,
+                    "letter": letter,
+                    "header": header_str,
+                    "field": field,
+                    "type": type_val,
+                    "category": category,
+                    "label": label,
+                    "description": mapped.get("description", f"Columna {header_str}"),
+                    "formula": formula_str,
+                    "editable": editable,
+                    "incidence_editable": incidence_editable
+                })
+                
+            wb_f.close()
+            
+            # Gemini Call
+            gemini_res = None
+            api_key = get_ai_api_key(schema.get("ai_provider", "google"))
+            if api_key:
+                prompt = f"""
+                Eres un auditor contable experto en nóminas bajo la LFT (Ley Federal del Trabajo) en México.
+                El usuario ha cargado un archivo Excel de nómina. Hemos extraído los encabezados y las fórmulas de la primera fila de datos (renglón 6).
+                
+                Lista de columnas extraídas:
+                {json.dumps(columns_to_validate, ensure_ascii=False, indent=2)}
+                
+                Parámetros de nómina activos:
+                - UMA: {schema.get("uma_cell", "S3")}
+                - Días Mes: {schema.get("dias_mes_cell", "N3")}
+                
+                Por favor, audita el mapeo de campos y valida cada una de las fórmulas según las siguientes reglas:
+                1. Clasifica cada columna en un 'status':
+                   - "correct" (Verde): Si la fórmula del Excel es correcta y cumple con la LFT y las buenas prácticas.
+                   - "incorrect" (Rojo): Si la fórmula tiene un error matemático, conceptual o de sintaxis (ej: divide mal, o calcula el neto quincenal como Sueldo/2 pero el Excel tiene columna de faltas/incidencias y la fórmula la ignora. Debe descontar faltas proporcionalmente).
+                   - "recommended" (Azul): Si no tiene fórmula en el Excel (es un valor plano o vacío), pero el Asistente considera que se debería calcular mediante una fórmula (ej: vacaciones_restantes, sueldo_bruto_mensual, sueldo quincenal, neto quincenal, sumatorias).
+                   - "direct" (Gris/Plano): Si es un campo que no requiere fórmula y se alimenta directamente (ej: ID, Nombre, Área, Puesto, Salario Diario).
+                2. Para cada columna, proporciona:
+                   - "description": Una descripción breve y clara de lo que significa este campo.
+                   - "reason": Una explicación de por qué tiene ese estado de validación (en español).
+                   - "recommended_formula": Una fórmula sugerida si el estado es 'incorrect' o 'recommended' (ej: =AL6-AM6 o =AB6/2). Debe estar en mayúsculas y usar referencias relativas a la fila 6. Si no aplica, ponlo como null.
+                
+                Responde exclusivamente en formato JSON estructurado con la clave "columns" conteniendo el arreglo de resultados:
+                {{
+                  "columns": [
+                    {{
+                      "index": número,
+                      "field": "identificador_snake_case",
+                      "description": "descripción",
+                      "status": "correct|incorrect|recommended|direct",
+                      "reason": "explicación",
+                      "recommended_formula": "fórmula o null"
+                    }}
+                  ]
+                }}
+                """
+                try:
+                    gemini_res = call_ai_api_simple(prompt, schema, response_json=True)
+                except Exception as gem_e:
+                    print("Error calling Gemini in validation:", gem_e)
+                    
+            ai_cols = {c["index"]: c for c in gemini_res["columns"]} if gemini_res and "columns" in gemini_res else {}
+            
+            final_columns = []
+            for col in columns_to_validate:
+                idx = col["index"]
+                ai_data = ai_cols.get(idx, {})
+                
+                if ai_data:
+                    col["status"] = ai_data.get("status", "direct")
+                    col["reason"] = ai_data.get("reason", "Mapeo validado.")
+                    col["recommended_formula"] = ai_data.get("recommended_formula")
+                    col["description"] = ai_data.get("description", col["description"])
+                    if "field" in ai_data:
+                        col["field"] = ai_data["field"]
+                final_columns.append(col)
+                
+            if not ai_cols:
+                # Fallback to local deterministic validation
+                final_columns = validate_schema_formulas_locally(final_columns)
+                
+            correct_count = sum(1 for c in final_columns if c.get("status") == "correct")
+            incorrect_count = sum(1 for c in final_columns if c.get("status") == "incorrect")
+            recommended_count = sum(1 for c in final_columns if c.get("status") == "recommended")
+            direct_count = sum(1 for c in final_columns if c.get("status") == "direct")
+            
+            self.send_json({
+                "columns": final_columns,
+                "summary": {
+                    "correct_count": correct_count,
+                    "incorrect_count": incorrect_count,
+                    "recommended_count": recommended_count,
+                    "direct_count": direct_count,
+                    "has_minimal_fields": True
+                }
+            })
+        except Exception as e:
+            self.send_json({"error": f"Error al validar esquema: {e}", "details": traceback.format_exc()}, 500)
+
+    def schema_confirm_endpoint(self, body):
+        try:
+            excel_path = body.get("path")
+            columns_data = body.get("columns")
+            if not excel_path or not os.path.exists(excel_path):
+                self.send_json({"error": "Archivo Excel no encontrado."}, 404)
+                return
+            if not columns_data:
+                self.send_json({"error": "No se recibieron las columnas para guardar."}, 400)
+                return
+                
+            schema = load_schema()
+            
+            clean_columns = []
+            for col in columns_data:
+                clean_col = {
+                    "index": col["index"],
+                    "letter": col["letter"],
+                    "header": col["header"],
+                    "field": col["field"],
+                    "type": col.get("type", "string"),
+                    "category": col.get("category", "metadata"),
+                    "label": col.get("label", col["header"]),
+                    "description": col.get("description", ""),
+                    "editable": col.get("editable", True),
+                    "incidence_editable": col.get("incidence_editable", False)
+                }
+                if col.get("formula"):
+                    clean_col["formula_template"] = col["formula"]
+                clean_columns.append(clean_col)
+                
+            schema["columns"] = clean_columns
+            save_schema(schema)
+            
+            # Open excel and rewrite formulas for row 6 to 20
+            wb = load_workbook_agnostic(excel_path, data_only=False)
+            ws = wb.active
+            headers_row = find_headers_row(ws)
+            start_row = headers_row + 1
+            
+            # Determine end row
+            end_row = start_row
+            nombre_col = get_field_index(schema, "nombre")
+            id_col = get_field_index(schema, "id")
+            
+            while True:
+                n_val = ws.cell(row=end_row, column=nombre_col).value
+                c_val = ws.cell(row=end_row, column=id_col).value
+                if n_val and any(x in str(n_val).upper() for x in ["TOTAL", "SUMA"]):
+                    break
+                if n_val is None and c_val is None:
+                    break
+                end_row += 1
+            end_row -= 1
+            
+            import re
+            for r in range(start_row, end_row + 1):
+                for col in columns_data:
+                    formula = col.get("formula")
+                    if formula and str(formula).startswith("="):
+                        adapted = re.sub(r'([A-Z]+)6', r'\g<1>' + str(r), formula.upper())
+                        ws.cell(row=r, column=col["index"]).value = adapted
+                        
+            recompile_active_period_incidences(wb, schema)
+            save_workbook_agnostic(wb, excel_path)
+            wb.close()
+            
+            self.send_json({"success": True, "message": "Esquema guardado y base de datos recalculada con éxito."})
+        except Exception as e:
+            self.send_json({"error": f"Error al confirmar esquema: {e}", "details": traceback.format_exc()}, 500)
 
     def upload_rules_endpoint(self, post_data):
         try:
