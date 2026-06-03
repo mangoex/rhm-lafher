@@ -399,6 +399,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         state.db_path = data.db_path || "Nomina ciega.xlsx";
         state.period = data.period;
+        state.config_status = data.config_status || { missing_lft_params: [], missing_companies_config: [] };
 
         if (dbIndicator) {
           dbIndicator.className = "badge success";
@@ -424,6 +425,7 @@ document.addEventListener("DOMContentLoaded", () => {
           initPeriodControls();
         }
 
+        checkAndRenderConfigAlerts();
         renderActiveView();
         if (window.lucide) lucide.createIcons();
       })
@@ -437,6 +439,42 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast("Error al conectar con la base de datos Excel. Asegúrate de cerrar el archivo Excel si lo tienes abierto.", "error");
         if (window.lucide) lucide.createIcons();
       });
+  }
+
+  function checkAndRenderConfigAlerts() {
+    const banner = document.getElementById("config-warning-banner");
+    const warningText = document.getElementById("config-warning-text");
+    const fixBtn = document.getElementById("btn-fix-config");
+    
+    if (!banner) return;
+    
+    const missingLft = state.config_status?.missing_lft_params || [];
+    const missingCos = state.config_status?.missing_companies_config || [];
+    
+    if (missingLft.length === 0 && missingCos.length === 0) {
+      banner.style.display = "none";
+      return;
+    }
+    
+    let messages = [];
+    if (missingLft.length > 0) {
+      messages.push(`Falta configurar los siguientes parámetros de Ley (LFT) en el archivo Excel: <strong>${missingLft.join(", ")}</strong>.`);
+    }
+    if (missingCos.length > 0) {
+      messages.push(`Falta definir la Prima de Riesgo para las siguientes empresas registradas: <strong>${missingCos.join(", ")}</strong>.`);
+    }
+    
+    warningText.innerHTML = messages.join("<br>");
+    banner.style.display = "block";
+    if (window.lucide) lucide.createIcons();
+    
+    if (fixBtn) {
+      const newFixBtn = fixBtn.cloneNode(true);
+      fixBtn.parentNode.replaceChild(newFixBtn, fixBtn);
+      newFixBtn.addEventListener("click", () => {
+        switchTab("config");
+      });
+    }
   }
 
   // 3. Dynamic input field generation
@@ -1881,6 +1919,31 @@ document.addEventListener("DOMContentLoaded", () => {
     if (rulesTextArea && state.schema) {
       rulesTextArea.value = state.schema.payroll_rules || "";
     }
+
+    // Highlight missing inputs
+    const missingLft = state.config_status?.missing_lft_params || [];
+    const fieldsMap = {
+      "cfg-uma": "UMA 2026",
+      "cfg-vales-pct": "Porcentaje Vales",
+      "cfg-dias-mes": "Factor Días Mes",
+      "cfg-fa-pct": "Fondo de Ahorro %",
+      "cfg-aguinaldo": "Días Aguinaldo",
+      "cfg-prima": "Prima Vacacional %"
+    };
+    
+    Object.keys(fieldsMap).forEach(id => {
+      const input = document.getElementById(id);
+      if (input) {
+        const paramName = fieldsMap[id];
+        if (missingLft.includes(paramName)) {
+          input.style.border = "2px solid var(--error)";
+          input.style.boxShadow = "0 0 10px rgba(239, 68, 68, 0.2)";
+        } else {
+          input.style.border = "";
+          input.style.boxShadow = "";
+        }
+      }
+    });
   }
 
   // 13. Modal Handle: Alta / Edición Colaboradores
@@ -2829,21 +2892,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const tableBody = document.getElementById("companies-list-table");
     if (!tableBody) return;
     
-    tableBody.innerHTML = state.companies.map(c => `
-      <tr>
-        <td style="font-weight: 600;">${escapeHtml(c.nombre)}</td>
-        <td>${escapeHtml(c.regimen)}</td>
-        <td>${c.prima_riesgo.toFixed(4)}%</td>
-        <td>
-          <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; margin-right: 5px; display: inline-flex; align-items: center;" onclick="editCompany('${c.id}')">
-            <i data-lucide="edit-3" style="width: 12px; height: 12px; margin-right: 2px;"></i> Editar
-          </button>
-          <button type="button" class="btn btn-danger btn-sm" style="padding: 2px 8px; background: var(--danger); border: none; display: inline-flex; align-items: center;" onclick="deleteCompany('${c.id}')">
-            <i data-lucide="trash" style="width: 12px; height: 12px; margin-right: 2px;"></i> Eliminar
-          </button>
-        </td>
-      </tr>
-    `).join("");
+    const missingCos = state.config_status?.missing_companies_config || [];
+    
+    tableBody.innerHTML = state.companies.map(c => {
+      const compName = c.nombre ? c.nombre.trim() : "";
+      const isMissing = missingCos.includes(compName);
+      const rowStyle = isMissing ? 'style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--error);"' : '';
+      const textWarning = isMissing ? ' <span class="badge danger" style="padding: 2px 6px; font-size: 0.7rem; margin-left: 5px;">Falta Prima Riesgo</span>' : '';
+      const primaStyle = isMissing ? 'style="color: var(--error); font-weight: bold;"' : '';
+      
+      return `
+        <tr ${rowStyle}>
+          <td style="font-weight: 600;">${escapeHtml(c.nombre)}${textWarning}</td>
+          <td>${escapeHtml(c.regimen)}</td>
+          <td ${primaStyle}>${(c.prima_riesgo || 0).toFixed(4)}%</td>
+          <td>
+            <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; margin-right: 5px; display: inline-flex; align-items: center;" onclick="editCompany('${c.id}')">
+              <i data-lucide="edit-3" style="width: 12px; height: 12px; margin-right: 2px;"></i> Editar
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" style="padding: 2px 8px; background: var(--danger); border: none; display: inline-flex; align-items: center;" onclick="deleteCompany('${c.id}')">
+              <i data-lucide="trash" style="width: 12px; height: 12px; margin-right: 2px;"></i> Eliminar
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join("");
     
     if (window.lucide) lucide.createIcons();
   }

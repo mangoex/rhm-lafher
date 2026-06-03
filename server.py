@@ -3089,6 +3089,21 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 "prima": prima
             }
 
+            # Check for missing LFT configurations in Excel
+            missing_lft_params = []
+            if sheet_v[uma_cell_coord].value is None or str(sheet_v[uma_cell_coord].value).strip() == "":
+                missing_lft_params.append("UMA 2026")
+            if sheet_v[vales_pct_cell].value is None or str(sheet_v[vales_pct_cell].value).strip() == "":
+                missing_lft_params.append("Porcentaje Vales")
+            if sheet_v[dias_mes_cell].value is None or str(sheet_v[dias_mes_cell].value).strip() == "":
+                missing_lft_params.append("Factor Días Mes")
+            if sheet_v[fa_pct_cell].value is None or str(sheet_v[fa_pct_cell].value).strip() == "":
+                missing_lft_params.append("Fondo de Ahorro %")
+            if sheet_v[aguinaldo_cell].value is None or str(sheet_v[aguinaldo_cell].value).strip() == "":
+                missing_lft_params.append("Días Aguinaldo")
+            if sheet_v[prima_cell].value is None or str(sheet_v[prima_cell].value).strip() == "":
+                missing_lft_params.append("Prima Vacacional %")
+
             # 3. Read quincenal incidences into agg dictionary
             period_str = schema.get("period", "16 al 30 Abr 2026")
             start_date, end_date = parse_period_dates(period_str)
@@ -3238,13 +3253,53 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
             wb_v.close()
             wb_f.close()
+
+            # Scan unique companies in the Excel sheet
+            excel_companies = set()
+            for emp in employees:
+                emp_company = emp.get("empresa", "").strip()
+                if emp_company:
+                    excel_companies.add(emp_company)
+
+            # Sync with companies catalog
+            companies = load_companies()
+            existing_company_names = {c["nombre"].strip().upper() for c in companies}
+            
+            updated_catalog = False
+            for emp_name in excel_companies:
+                if emp_name.upper() not in existing_company_names:
+                    new_id = str(max([int(c["id"]) for c in companies] + [0]) + 1)
+                    companies.append({
+                        "id": new_id,
+                        "nombre": emp_name,
+                        "razon_social": emp_name + " S.A. de C.V.",
+                        "regimen": "Régimen General de Ley Personas Morales",
+                        "prima_riesgo": 0.0
+                    })
+                    existing_company_names.add(emp_name.upper())
+                    updated_catalog = True
+                    
+            if updated_catalog:
+                save_companies_data(companies)
+
+            # Identify companies with missing risk premium (prima_riesgo)
+            missing_companies_config = []
+            for c in companies:
+                if c["nombre"].strip() in excel_companies:
+                    if c["regimen"] == "Régimen General de Ley Personas Morales":
+                        if c["prima_riesgo"] is None or c.get("prima_riesgo", 0.0) == 0.0:
+                            missing_companies_config.append(c["nombre"])
             
             self.send_json({
                 "period": schema.get("period", "16 al 30 Abr 2026"),
                 "uma": uma,
                 "config": config,
                 "db_path": schema.get("db_path", "Nomina ciega.xlsx"),
-                "employees": employees
+                "employees": employees,
+                "config_status": {
+                    "missing_lft_params": missing_lft_params,
+                    "missing_companies_config": missing_companies_config
+                }
             })
 
         except Exception as e:

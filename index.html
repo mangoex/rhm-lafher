@@ -81,6 +81,18 @@
       </div>
     </div>
     
+    <!-- Alert Banner for Missing Configurations -->
+    <div id="config-warning-banner" class="content-box alert-banner danger" style="display: none; margin-bottom: 2rem; border-left: 4px solid var(--error); background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-left: 4px solid var(--error); border-radius: 12px; padding: 1.25rem;">
+      <div style="display: flex; gap: 0.75rem; align-items: start;">
+        <i data-lucide="alert-triangle" style="color: var(--error); flex-shrink: 0; width: 22px; height: 22px; margin-top: 0.1rem;"></i>
+        <div style="flex-grow: 1;">
+          <h3 style="font-size: 0.98rem; font-weight: 600; margin-bottom: 0.25rem; color: #fff;">Falta de Configuración en Nómina</h3>
+          <p id="config-warning-text" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5;"></p>
+          <button id="btn-fix-config" class="btn btn-secondary btn-sm" style="margin: 0; padding: 6px 12px; font-size: 0.8rem;">Corregir Configuración</button>
+        </div>
+      </div>
+    </div>
+    
     <!-- 1. DASHBOARD VIEW -->
     <section id="dashboard" class="view-section active">
       <div class="dashboard-grid">
