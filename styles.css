@@ -1192,6 +1192,25 @@ tr:hover td {
   margin-top: 1.5rem;
 }
 
+.config-grid-3cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 1200px) {
+  .config-grid-3cols {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .config-grid-3cols {
+    grid-template-columns: 1fr;
+  }
+}
+
 .config-card {
   background: rgba(30, 41, 59, 0.35);
   backdrop-filter: blur(var(--panel-blur));
@@ -1208,6 +1227,31 @@ tr:hover td {
   border-left-color: var(--primary);
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(99, 102, 241, 0.08);
   transform: translateY(-2px);
+}
+
+/* Custom card theme glows */
+.config-card.db-card {
+  border-left-color: var(--success);
+}
+.config-card.db-card:hover {
+  border-left-color: #34d399;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+.config-card.params-card {
+  border-left-color: var(--primary);
+}
+.config-card.params-card:hover {
+  border-left-color: #818cf8;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.config-card.ai-card {
+  border-left-color: #a855f7;
+}
+.config-card.ai-card:hover {
+  border-left-color: #c084fc;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(168, 85, 247, 0.15);
 }
 
 .config-card h3 {

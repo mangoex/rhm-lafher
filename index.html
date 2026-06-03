@@ -466,10 +466,10 @@
       </div>
       
       <form id="form-config">
-        <div class="config-grid-layout">
+        <div class="config-grid-3cols">
           
           <!-- Card 1: Base de Datos -->
-          <div class="config-card">
+          <div class="config-card db-card">
             <h3><i data-lucide="database"></i> Base de Datos e Historial</h3>
             <div class="form-group" style="margin-top: 0.5rem;">
               <label for="cfg-db-path">Ruta del Archivo de Base de Datos</label>
@@ -484,7 +484,7 @@
           </div>
           
           <!-- Card 2: Constantes Fiscales -->
-          <div class="config-card">
+          <div class="config-card params-card">
             <h3><i data-lucide="calculator"></i> Parámetros de Nómina (LFT)</h3>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
               <div class="form-group">
@@ -515,7 +515,7 @@
           </div>
           
           <!-- Card 4: Configuración AI -->
-          <div class="config-card">
+          <div class="config-card ai-card">
             <h3><i data-lucide="brain"></i> Motor de Inteligencia Artificial (Gemini)</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1rem;">
               <div class="form-group">
@@ -594,7 +594,7 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Administra las empresas asociadas a los colaboradores y define sus parámetros de riesgo e impuestos.</p>
         </div>
         
-        <div class="config-grid-layout">
+        <div class="config-grid-3cols">
           <!-- Card 1: Registrar / Editar Empresa -->
           <div class="config-card">
             <h3 id="company-form-title"><i data-lucide="plus-circle"></i> Registrar / Editar Empresa</h3>
@@ -660,7 +660,7 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Crea o elimina cuentas de usuario y define sus niveles de acceso.</p>
         </div>
         
-        <div class="config-grid-layout">
+        <div class="config-grid-3cols">
           <!-- Card 1: Nuevo Usuario -->
           <div class="config-card">
             <h3><i data-lucide="user-plus"></i> Nuevo Usuario</h3>
@@ -687,7 +687,7 @@
           </div>
           
           <!-- Card 2: Usuarios Activos -->
-          <div class="config-card">
+          <div class="config-card" style="grid-column: span 2;">
             <h3><i data-lucide="shield"></i> Usuarios Activos</h3>
             <div class="table-wrapper" style="margin-top: 0.5rem;">
               <table>
