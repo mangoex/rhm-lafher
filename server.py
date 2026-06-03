@@ -967,7 +967,33 @@ def load_workbook_agnostic(path, data_only=False):
                 print(f"Error loading CSV to workbook: {e}")
         return wb
     else:
-        return openpyxl.load_workbook(path, data_only=data_only)
+        try:
+            return openpyxl.load_workbook(path, data_only=data_only)
+        except Exception as load_err:
+            print(f"Error loading Excel workbook '{path}': {load_err}")
+            try:
+                main_excel = get_excel_path()
+                if os.path.abspath(path) == os.path.abspath(main_excel):
+                    print(f"Excel file '{path}' appears corrupt/invalid. Attempting self-healing template recovery...")
+                    if os.path.exists(path):
+                        corrupt_backup = path + ".corrupt"
+                        if os.path.exists(corrupt_backup):
+                            os.remove(corrupt_backup)
+                        os.rename(path, corrupt_backup)
+                        print(f"Corrupt database backed up to '{corrupt_backup}'")
+                    
+                    bundled_excel = os.path.join(STATIC_DIR, "Nomina_Plantilla.xlsx")
+                    if not os.path.exists(bundled_excel):
+                        bundled_excel = os.path.join(BASE_DIR, "Nomina_Plantilla.xlsx")
+                    if os.path.exists(bundled_excel):
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        shutil.copyfile(bundled_excel, path)
+                        print(f"Restored default template to '{path}'")
+                        return openpyxl.load_workbook(path, data_only=data_only)
+            except Exception as self_heal_err:
+                print(f"Self-healing failed: {self_heal_err}")
+            raise load_err
+
 
 def save_workbook_agnostic(wb, path):
     tmp_path = path + ".tmp"
@@ -1683,6 +1709,177 @@ def inject_formulas_dynamically(ws, row, schema):
         if f in formulas:
             ws.cell(row=row, column=col["index"]).value = formulas[f]
 
+# HELPER FUNCTIONS FOR INTERACTIVE SCHEMA VERIFICATION AND FORMULA AUDITING
+def identify_critical_headers(headers):
+    nombre_idx = None
+    sdi_idx = None
+    
+    nombre_kws = ["nombre completo", "nombre", "empleado", "colaborador", "trabajador", "nombre completo / asimilados"]
+    sdi_kws = ["sdi", "salario diario integrado", "salario integrado", "integrado", "factor de integracion", "factor integracion", "s.d.i.", "factor integracion imss"]
+    
+    for i, h in enumerate(headers):
+        if not h:
+            continue
+        h_clean = str(h).lower().strip()
+        
+        # Check exact matches first
+        if h_clean == "nombre completo" or h_clean == "nombre":
+            nombre_idx = i + 1
+        elif h_clean == "sdi" or h_clean == "salario diario integrado" or h_clean == "factor integracion imss":
+            sdi_idx = i + 1
+            
+    # Fallback to fuzzy keyword search
+    if nombre_idx is None:
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            h_clean = str(h).lower().strip()
+            if any(kw in h_clean for kw in nombre_kws):
+                nombre_idx = i + 1
+                break
+                
+    if sdi_idx is None:
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            h_clean = str(h).lower().strip()
+            if any(kw in h_clean for kw in sdi_kws):
+                sdi_idx = i + 1
+                break
+                
+    return nombre_idx, sdi_idx
+
+def validate_schema_formulas_locally(columns):
+    tot_letter = "AL"
+    tom_letter = "AM"
+    faltas_letter = "AH"
+    bruto_mensual_letter = "AB"
+    bruto_mensual_2_letter = "AF"
+    
+    for col in columns:
+        f = col.get("field")
+        if f == "vacaciones_totales":
+            tot_letter = col.get("letter")
+        elif f == "vacaciones_tomadas":
+            tom_letter = col.get("letter")
+        elif f == "faltas":
+            faltas_letter = col.get("letter")
+        elif f == "sueldo_bruto_mensual":
+            bruto_mensual_letter = col.get("letter")
+        elif f == "sueldo_bruto_mensual_2":
+            bruto_mensual_2_letter = col.get("letter")
+
+    for col in columns:
+        f = col.get("field")
+        cat = col.get("category")
+        formula = col.get("formula")
+        letter = col.get("letter")
+        
+        col["status"] = "direct"
+        col["reason"] = "Campo de entrada directa sin fórmula."
+        col["recommended_formula"] = None
+        
+        if f == "vacaciones_restantes":
+            expected = f"={tot_letter}6-{tom_letter}6"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de vacaciones restantes (restando tomadas de totales)."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba que restara vacaciones tomadas de las totales: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda calcular automáticamente restando las vacaciones tomadas de las totales."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_mensual":
+            expected = "=SUM(U6:AA6)"
+            if formula:
+                if str(formula).upper().startswith("=SUM"):
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta para sumar conceptos de percepciones."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Se esperaba una sumatoria de percepciones (ej: '{expected}')."
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda sumar automáticamente todas las percepciones mensuales."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_quincenal_base":
+            expected = f"={bruto_mensual_letter}6/2"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de bruto quincenal base (mensual dividido entre 2)."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba dividir el bruto mensual entre 2: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda dividir el sueldo bruto mensual entre 2."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_mensual_2":
+            ded_letter = "AE"
+            for c in columns:
+                if c.get("field") == "descuento_adicional":
+                    ded_letter = c.get("letter")
+            expected = f"={bruto_mensual_letter}6-{ded_letter}6"
+            
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de sueldo neto mensual después de deducciones."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. Se esperaba restar deducciones del bruto mensual: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda restar deducciones del sueldo bruto mensual."
+                col["recommended_formula"] = expected
+                
+        elif f == "sueldo_bruto_quincenal_2":
+            expected = f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
+            if formula:
+                formula_clean = str(formula).upper().replace(" ", "")
+                expected_clean = expected.upper().replace(" ", "")
+                if formula_clean == expected_clean or f"15-{faltas_letter}6" in formula_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula correcta de neto quincenal (descuenta proporcionalmente las faltas)."
+                elif "FALTAS" in formula_clean or faltas_letter in formula_clean:
+                    col["status"] = "correct"
+                    col["reason"] = "Fórmula de neto quincenal con descuento de faltas validada."
+                else:
+                    col["status"] = "incorrect"
+                    col["reason"] = f"Fórmula incorrecta. No descuenta las faltas del periodo. Se recomienda: '{expected}'"
+                    col["recommended_formula"] = expected
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Se recomienda calcular el neto quincenal descontando las faltas del periodo."
+                col["recommended_formula"] = expected
+                
+        elif cat == "calculated":
+            if formula:
+                col["status"] = "correct"
+                col["reason"] = "Columna calculada con fórmula activa."
+            else:
+                col["status"] = "recommended"
+                col["reason"] = "Columna definida como calculada, pero no tiene fórmula activa."
+                
+    return columns
+
 class APIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
@@ -2288,178 +2485,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             tb = traceback.format_exc()
             print("Error in upload_database_endpoint:\n", tb)
             self.send_json({"error": f"Error al subir base de datos: {e}", "details": tb}, 500)
-
-# HELPER FUNCTIONS FOR INTERACTIVE SCHEMA VERIFICATION AND FORMULA AUDITING
-def identify_critical_headers(headers):
-    nombre_idx = None
-    sdi_idx = None
-    
-    nombre_kws = ["nombre completo", "nombre", "empleado", "colaborador", "trabajador", "nombre completo / asimilados"]
-    sdi_kws = ["sdi", "salario diario integrado", "salario integrado", "integrado", "factor de integracion", "factor integracion", "s.d.i.", "factor integracion imss"]
-    
-    for i, h in enumerate(headers):
-        if not h:
-            continue
-        h_clean = str(h).lower().strip()
-        
-        # Check exact matches first
-        if h_clean == "nombre completo" or h_clean == "nombre":
-            nombre_idx = i + 1
-        elif h_clean == "sdi" or h_clean == "salario diario integrado" or h_clean == "factor integracion imss":
-            sdi_idx = i + 1
-            
-    # Fallback to fuzzy keyword search
-    if nombre_idx is None:
-        for i, h in enumerate(headers):
-            if not h:
-                continue
-            h_clean = str(h).lower().strip()
-            if any(kw in h_clean for kw in nombre_kws):
-                nombre_idx = i + 1
-                break
-                
-    if sdi_idx is None:
-        for i, h in enumerate(headers):
-            if not h:
-                continue
-            h_clean = str(h).lower().strip()
-            if any(kw in h_clean for kw in sdi_kws):
-                sdi_idx = i + 1
-                break
-                
-    return nombre_idx, sdi_idx
-
-def validate_schema_formulas_locally(columns):
-    tot_letter = "AL"
-    tom_letter = "AM"
-    faltas_letter = "AH"
-    bruto_mensual_letter = "AB"
-    bruto_mensual_2_letter = "AF"
-    
-    for col in columns:
-        f = col.get("field")
-        if f == "vacaciones_totales":
-            tot_letter = col.get("letter")
-        elif f == "vacaciones_tomadas":
-            tom_letter = col.get("letter")
-        elif f == "faltas":
-            faltas_letter = col.get("letter")
-        elif f == "sueldo_bruto_mensual":
-            bruto_mensual_letter = col.get("letter")
-        elif f == "sueldo_bruto_mensual_2":
-            bruto_mensual_2_letter = col.get("letter")
-
-    for col in columns:
-        f = col.get("field")
-        cat = col.get("category")
-        formula = col.get("formula")
-        letter = col.get("letter")
-        
-        col["status"] = "direct"
-        col["reason"] = "Campo de entrada directa sin fórmula."
-        col["recommended_formula"] = None
-        
-        if f == "vacaciones_restantes":
-            expected = f"={tot_letter}6-{tom_letter}6"
-            if formula:
-                formula_clean = str(formula).upper().replace(" ", "")
-                expected_clean = expected.upper().replace(" ", "")
-                if formula_clean == expected_clean:
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de vacaciones restantes (restando tomadas de totales)."
-                else:
-                    col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. Se esperaba que restara vacaciones tomadas de las totales: '{expected}'"
-                    col["recommended_formula"] = expected
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Se recomienda calcular automáticamente restando las vacaciones tomadas de las totales."
-                col["recommended_formula"] = expected
-                
-        elif f == "sueldo_bruto_mensual":
-            expected = "=SUM(U6:AA6)"
-            if formula:
-                if str(formula).upper().startswith("=SUM"):
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta para sumar conceptos de percepciones."
-                else:
-                    col["status"] = "incorrect"
-                    col["reason"] = f"Se esperaba una sumatoria de percepciones (ej: '{expected}')."
-                    col["recommended_formula"] = expected
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Se recomienda sumar automáticamente todas las percepciones mensuales."
-                col["recommended_formula"] = expected
-                
-        elif f == "sueldo_bruto_quincenal_base":
-            expected = f"={bruto_mensual_letter}6/2"
-            if formula:
-                formula_clean = str(formula).upper().replace(" ", "")
-                expected_clean = expected.upper().replace(" ", "")
-                if formula_clean == expected_clean:
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de bruto quincenal base (mensual dividido entre 2)."
-                else:
-                    col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. Se esperaba dividir el bruto mensual entre 2: '{expected}'"
-                    col["recommended_formula"] = expected
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Se recomienda dividir el sueldo bruto mensual entre 2."
-                col["recommended_formula"] = expected
-                
-        elif f == "sueldo_bruto_mensual_2":
-            ded_letter = "AE"
-            for c in columns:
-                if c.get("field") == "descuento_adicional":
-                    ded_letter = c.get("letter")
-            expected = f"={bruto_mensual_letter}6-{ded_letter}6"
-            
-            if formula:
-                formula_clean = str(formula).upper().replace(" ", "")
-                expected_clean = expected.upper().replace(" ", "")
-                if formula_clean == expected_clean:
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de sueldo neto mensual después de deducciones."
-                else:
-                    col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. Se esperaba restar deducciones del bruto mensual: '{expected}'"
-                    col["recommended_formula"] = expected
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Se recomienda restar deducciones del sueldo bruto mensual."
-                col["recommended_formula"] = expected
-                
-        elif f == "sueldo_bruto_quincenal_2":
-            expected = f"={bruto_mensual_2_letter}6/2/15*(15-{faltas_letter}6)"
-            if formula:
-                formula_clean = str(formula).upper().replace(" ", "")
-                expected_clean = expected.upper().replace(" ", "")
-                if formula_clean == expected_clean or f"15-{faltas_letter}6" in formula_clean:
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula correcta de neto quincenal (descuenta proporcionalmente las faltas)."
-                elif "FALTAS" in formula_clean or faltas_letter in formula_clean:
-                    col["status"] = "correct"
-                    col["reason"] = "Fórmula de neto quincenal con descuento de faltas validada."
-                else:
-                    col["status"] = "incorrect"
-                    col["reason"] = f"Fórmula incorrecta. No descuenta las faltas del periodo. Se recomienda: '{expected}'"
-                    col["recommended_formula"] = expected
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Se recomienda calcular el neto quincenal descontando las faltas del periodo."
-                col["recommended_formula"] = expected
-                
-        elif cat == "calculated":
-            if formula:
-                col["status"] = "correct"
-                col["reason"] = "Columna calculada con fórmula activa."
-            else:
-                col["status"] = "recommended"
-                col["reason"] = "Columna definida como calculada, pero no tiene fórmula activa."
-                
-    return columns
-
 
 # ENDPOINTS IN APIHANDLER CLASS
     def schema_validate_endpoint(self, body):
