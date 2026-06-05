@@ -988,7 +988,7 @@ document.addEventListener("DOMContentLoaded", () => {
         diffTime = Math.max(0, activeDate - ingresoDate);
         years = diffTime / (1000 * 60 * 60 * 24 * 365.25);
       }
-      const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
+      const isBaja = isEmployeeBaja(emp, state.period);
       
       let schemes = [];
       if (emp.salario_diario > 0) schemes.push("Nominal IMSS");

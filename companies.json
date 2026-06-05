@@ -1,44 +1,58 @@
 [
-  {
-    "id": "1",
-    "nombre": "AHA",
-    "razon_social": "AHA S.A. de C.V.",
-    "regimen": "Régimen General de Ley Personas Morales",
-    "prima_riesgo": 0.5432
-  },
-  {
-    "id": "2",
-    "nombre": "BYRMAX",
-    "razon_social": "BYRMAX S. de R.L. de C.V.",
-    "regimen": "Régimen General de Ley Personas Morales",
-    "prima_riesgo": 1.1345
-  },
-  {
-    "id": "3",
-    "nombre": "CPI",
-    "razon_social": "CPI Servicios Financieros S.A. de C.V.",
-    "regimen": "Régimen General de Ley Personas Morales",
-    "prima_riesgo": 0.5000
-  },
-  {
-    "id": "4",
-    "nombre": "CPI/ ASIMIL",
-    "razon_social": "CPI Asimilados y Servicios Integrales",
-    "regimen": "Sueldos y Salarios / Asimilados",
-    "prima_riesgo": 0.0000
-  },
-  {
-    "id": "5",
-    "nombre": "LASO",
-    "razon_social": "LASO Corporativo Jurídico",
-    "regimen": "Régimen General de Ley Personas Morales",
-    "prima_riesgo": 0.7500
-  },
-  {
-    "id": "6",
-    "nombre": "FACTURA",
-    "razon_social": "Facturación y Comisiones",
-    "regimen": "Sueldos y Salarios / Asimilados",
-    "prima_riesgo": 0.0000
-  }
+    {
+        "id": "1",
+        "nombre": "AHA",
+        "razon_social": "AHA S.A. de C.V.",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 0.5432
+    },
+    {
+        "id": "2",
+        "nombre": "BYRMAX",
+        "razon_social": "BYRMAX S. de R.L. de C.V.",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 1.1345
+    },
+    {
+        "id": "3",
+        "nombre": "CPI",
+        "razon_social": "CPI Servicios Financieros S.A. de C.V.",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 0.5
+    },
+    {
+        "id": "4",
+        "nombre": "CPI/ ASIMIL",
+        "razon_social": "CPI Asimilados y Servicios Integrales",
+        "regimen": "Sueldos y Salarios / Asimilados",
+        "prima_riesgo": 0.0
+    },
+    {
+        "id": "5",
+        "nombre": "LASO",
+        "razon_social": "LASO Corporativo Jurídico",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 0.75
+    },
+    {
+        "id": "6",
+        "nombre": "FACTURA",
+        "razon_social": "Facturación y Comisiones",
+        "regimen": "Sueldos y Salarios / Asimilados",
+        "prima_riesgo": 0.0
+    },
+    {
+        "id": "7",
+        "nombre": "AHA-ASIMIL",
+        "razon_social": "AHA-ASIMIL S.A. de C.V.",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 0.0
+    },
+    {
+        "id": "8",
+        "nombre": "CPI-ASIMIL",
+        "razon_social": "CPI-ASIMIL S.A. de C.V.",
+        "regimen": "Régimen General de Ley Personas Morales",
+        "prima_riesgo": 0.0
+    }
 ]
