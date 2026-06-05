@@ -584,6 +584,19 @@ document.addEventListener("DOMContentLoaded", () => {
     return new Date();
   }
 
+  function isEmployeeBaja(emp, periodStr) {
+    if (!emp || !emp.baja) return false;
+    const periodEnd = getPeriodEndDate();
+    const bajaParts = emp.baja.split("-");
+    if (bajaParts.length !== 3) return true;
+    const bYear = parseInt(bajaParts[0], 10);
+    const bMonth = parseInt(bajaParts[1], 10) - 1;
+    const bDay = parseInt(bajaParts[2], 10);
+    const bajaDate = new Date(bYear, bMonth, bDay, 12, 0, 0);
+    const periodEndDateNoon = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), periodEnd.getDate(), 12, 0, 0);
+    return bajaDate <= periodEndDateNoon;
+  }
+
   function getVacationDays(years) {
     if (years < 1) return 0;
     if (years === 1) return 12;
@@ -615,7 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
       yearsCompleted = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
     }
     
-    const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
+    const isBaja = isEmployeeBaja(emp, state.period);
     
     // Factor de Integración
     const fi = isBaja ? 0 : getFactorIntegracion(yearsCompleted, cfg);
@@ -947,7 +960,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const matchEmpresa = !empresa || emp.empresa === empresa;
       const matchArea = !area || emp.area === area;
       
-      const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
+      const isBaja = isEmployeeBaja(emp, state.period);
       const matchStatus = status === "todos" || 
                           (status === "alta" && !isBaja) || 
                           (status === "baja" && isBaja);
@@ -989,27 +1002,33 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
       
-      const initials = emp.nombre.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase();
+      const initials = (emp.nombre || "")
+        .split(" ")
+        .filter(w => w.length > 0)
+        .map(w => w[0])
+        .join("")
+        .substring(0, 2)
+        .toUpperCase() || "??";
 
       tbody.innerHTML += `
-        <tr>
+        <tr class="${isBaja ? 'baja-row' : ''}">
           <td><span style="font-family: monospace; font-weight:600;">${emp.id}</span></td>
           <td>
             <div class="coll-row-flex">
               <div class="collaborator-avatar">${initials}</div>
               <div>
-                <div style="font-weight: 600;"></div>
+                <div style="font-weight: 600;">${emp.nombre || '-'}</div>
                 <div style="font-size:0.75rem; color:var(--text-muted);">No. ${emp.no}</div>
               </div>
             </div>
           </td>
-          <td></td>
+          <td>${emp.empresa || '-'}</td>
           <td>
-            <div></div>
-            <div style="font-size:0.78rem; color:var(--text-dark);">${emp.depto}</div>
+            <div>${emp.area || '-'}</div>
+            <div style="font-size:0.78rem; color:var(--text-dark);">${emp.depto || '-'}</div>
           </td>
-          <td></td>
-          <td>${emp.ingreso}</td>
+          <td>${emp.puesto || '-'}</td>
+          <td>${emp.ingreso || '-'}</td>
           <td>${years.toFixed(1)} años</td>
           <td>
             <div style="display:flex; flex-wrap:wrap; gap:0.25rem; max-width: 200px;">
@@ -1071,7 +1090,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const query = incSearchColl.value.toLowerCase().trim();
     const filtered = state.employees.filter(emp => {
-      const isBaja = emp.baja !== null && emp.baja !== undefined && emp.baja !== "";
+      const isBaja = isEmployeeBaja(emp, state.period);
       const name = (emp.nombre || "").toString().toLowerCase();
       const code = (emp.id || "").toString().toLowerCase();
       return !isBaja && (name.includes(query) || code.includes(query));
@@ -1551,6 +1570,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const calc = calculateEmployeePayroll(emp, state.config);
       
+      if (calc.isBaja) {
+        const chkVerBajas = document.getElementById("chk-ver-bajas");
+        const verBajas = chkVerBajas ? chkVerBajas.checked : false;
+        if (!verBajas) {
+          return; // Skip rendering
+        }
+      }
+
       if (!calc.isBaja) {
         totals.percepcionSueldos += calc.percepcionSueldos;
         totals.totalOtros += calc.totalOtros;
@@ -1573,7 +1600,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      const rowClass = calc.isBaja ? 'style="opacity: 0.4;"' : '';
+      const rowClassAttr = calc.isBaja ? 'class="prenomina-baja-row"' : '';
       const faLabel = calc.isBaja ? '-' : (emp.fondo_ahorro_activo ? 'SI' : 'NO');
       
       const vacTot = emp.vacaciones_totales || 0;
@@ -1602,7 +1629,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       let rowHtml = `
-        <tr ${rowClass}>
+        <tr ${rowClassAttr}>
           <td class="align-center">${calc.isBaja ? '-' : idx}</td>
           <td class="align-center" style="font-family:monospace; font-weight:600;" data-field="id">${emp.id}</td>
           <td class="align-center" data-field="empresa">${emp.empresa || '-'}</td>
@@ -3139,6 +3166,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearFilter = document.getElementById("btn-clear-prenomina-filter");
   if (btnClearFilter) {
     btnClearFilter.addEventListener("click", clearPrenominaFilter);
+  }
+
+  const chkVerBajas = document.getElementById("chk-ver-bajas");
+  if (chkVerBajas) {
+    chkVerBajas.addEventListener("change", renderPrenomina);
   }
 
   // Expose local AI state variables and functions to window context

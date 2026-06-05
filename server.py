@@ -732,7 +732,8 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                 baja_dt = parse_date_robust(baja_val)
                 
                 if ingreso_dt:
-                    corte_date = baja_dt if baja_dt else end_date
+                    is_baja_in_period = (baja_dt is not None and baja_dt <= end_date)
+                    corte_date = baja_dt if is_baja_in_period else end_date
                     diff_days = (corte_date - ingreso_dt).days
                     antiguedad_val = round(diff_days / 365.25, 4)
                     
@@ -762,7 +763,8 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                         ws.cell(row=row, column=vac_restantes_col).value = f"={tot_letter}{row}-{tom_letter}{row}"
                         
                     if fi_col:
-                        if not baja_dt:
+                        is_baja_in_period = (baja_dt is not None and baja_dt <= end_date)
+                        if not is_baja_in_period:
                             aguinaldo_cell_abs = ensure_absolute_cell(schema.get("aguinaldo_cell", "J3"))
                             prima_cell_abs = ensure_absolute_cell(schema.get("prima_cell", "H3"))
                             vac_tot_letter = get_field_letter(schema, "vacaciones_totales")
@@ -782,48 +784,67 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
             if observaciones_col:
                 ws.cell(row=row, column=observaciones_col).value = None
             
-            # Formulate SDI
-            if sdi_col and salario_diario_letter and factor_integracion_letter:
-                ws.cell(row=row, column=sdi_col).value = f"={salario_diario_letter}{row}*{factor_integracion_letter}{row}"
+            is_baja = (baja_dt is not None and baja_dt <= end_date)
+            
+            if not is_baja:
+                # Formulate SDI
+                if sdi_col and salario_diario_letter and factor_integracion_letter:
+                    ws.cell(row=row, column=sdi_col).value = f"={salario_diario_letter}{row}*{factor_integracion_letter}{row}"
+                    
+                if neto_quincenal_col and bruto_mensual_neto_letter:
+                    ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
                 
-            if neto_quincenal_col and bruto_mensual_neto_letter:
-                ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
-            
-            if puntualidad_col and sdi_letter:
-                ws.cell(row=row, column=puntualidad_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
-            if asistencia_col and sdi_letter:
-                ws.cell(row=row, column=asistencia_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
-            
-            if vales_col:
-                ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}"
-            if fa_col:
-                if is_fa_activo:
-                    ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
-                else:
-                    ws.cell(row=row, column=fa_col).value = None
+                if puntualidad_col and sdi_letter:
+                    ws.cell(row=row, column=puntualidad_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
+                if asistencia_col and sdi_letter:
+                    ws.cell(row=row, column=asistencia_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
+                
+                if vales_col:
+                    ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}"
+                if fa_col:
+                    if is_fa_activo:
+                        ws.cell(row=row, column=fa_col).value = f'=IF({get_field_letter(schema, "fondo_ahorro_activo")}{row}="SI", MIN({get_field_letter(schema, "sueldo_nominal")}{row}*({fa_pct_cell}/100), 1.3*{uma_cell}*{dias_mes_cell}), 0)'
+                    else:
+                        ws.cell(row=row, column=fa_col).value = None
 
-            # Formulate remaining calculated columns
-            if sueldo_nominal_col and salario_diario_letter:
-                ws.cell(row=row, column=sueldo_nominal_col).value = f"={salario_diario_letter}{row}*{dias_mes_cell}"
-                
-            if percepcion_sueldos_col and sueldo_nominal_letter and get_field_letter(schema, "fondo_ahorro"):
-                ws.cell(row=row, column=percepcion_sueldos_col).value = f"=SUM({sueldo_nominal_letter}{row}:{get_field_letter(schema, 'fondo_ahorro')}{row})"
-                
-            if bruto_mensual_col and percepcion_sueldos_letter and deuda_carro_letter:
-                ws.cell(row=row, column=bruto_mensual_col).value = f"=SUM({percepcion_sueldos_letter}{row}:{deuda_carro_letter}{row})"
-                
-            if bruto_quincenal_col and bruto_mensual_letter:
-                ws.cell(row=row, column=bruto_quincenal_col).value = f"={bruto_mensual_letter}{row}" if is_monthly else f"={bruto_mensual_letter}{row}/2"
-                
-            if bruto_mensual_neto_col and bruto_mensual_letter:
-                ded_fields = [col["field"] for col in schema.get("columns", []) if col.get("category") == "deduction"]
-                ded_sub_str = "".join([f"-{L(df)}{row}" for df in ded_fields if L(df)])
-                if not ded_sub_str:
-                    ded_sub_str = f"-{L('descuento_adicional')}{row}"
-                ws.cell(row=row, column=bruto_mensual_neto_col).value = f"={bruto_mensual_letter}{row}{ded_sub_str}"
-                
-            if descuento_quincenal_acumulado_col and bruto_quincenal_letter and get_field_letter(schema, "neto_quincenal"):
-                ws.cell(row=row, column=descuento_quincenal_acumulado_col).value = f"={bruto_quincenal_letter}{row}-{get_field_letter(schema, 'neto_quincenal')}{row}"
+                # Formulate remaining calculated columns
+                if sueldo_nominal_col and salario_diario_letter:
+                    ws.cell(row=row, column=sueldo_nominal_col).value = f"={salario_diario_letter}{row}*{dias_mes_cell}"
+                    
+                if percepcion_sueldos_col and sueldo_nominal_letter and get_field_letter(schema, "fondo_ahorro"):
+                    ws.cell(row=row, column=percepcion_sueldos_col).value = f"=SUM({sueldo_nominal_letter}{row}:{get_field_letter(schema, 'fondo_ahorro')}{row})"
+                    
+                if bruto_mensual_col and percepcion_sueldos_letter and deuda_carro_letter:
+                    ws.cell(row=row, column=bruto_mensual_col).value = f"=SUM({percepcion_sueldos_letter}{row}:{deuda_carro_letter}{row})"
+                    
+                if bruto_quincenal_col and bruto_mensual_letter:
+                    ws.cell(row=row, column=bruto_quincenal_col).value = f"={bruto_mensual_letter}{row}" if is_monthly else f"={bruto_mensual_letter}{row}/2"
+                    
+                if bruto_mensual_neto_col and bruto_mensual_letter:
+                    ded_fields = [col["field"] for col in schema.get("columns", []) if col.get("category") == "deduction"]
+                    ded_sub_str = "".join([f"-{L(df)}{row}" for df in ded_fields if L(df)])
+                    if not ded_sub_str:
+                        ded_sub_str = f"-{L('descuento_adicional')}{row}"
+                    ws.cell(row=row, column=bruto_mensual_neto_col).value = f"={bruto_mensual_letter}{row}{ded_sub_str}"
+                    
+                if descuento_quincenal_acumulado_col and bruto_quincenal_letter and get_field_letter(schema, "neto_quincenal"):
+                    ws.cell(row=row, column=descuento_quincenal_acumulado_col).value = f"={bruto_quincenal_letter}{row}-{get_field_letter(schema, 'neto_quincenal')}{row}"
+            else:
+                # Set calculated columns to 0.0 or None if they are baja
+                if sdi_col: ws.cell(row=row, column=sdi_col).value = 0.0
+                if sueldo_nominal_col: ws.cell(row=row, column=sueldo_nominal_col).value = 0.0
+                if puntualidad_col: ws.cell(row=row, column=puntualidad_col).value = 0.0
+                if asistencia_col: ws.cell(row=row, column=asistencia_col).value = 0.0
+                if vales_col: ws.cell(row=row, column=vales_col).value = 0.0
+                if fa_col: ws.cell(row=row, column=fa_col).value = None
+                if percepcion_sueldos_col: ws.cell(row=row, column=percepcion_sueldos_col).value = 0.0
+                if bruto_mensual_col: ws.cell(row=row, column=bruto_mensual_col).value = 0.0
+                if bruto_quincenal_col: ws.cell(row=row, column=bruto_quincenal_col).value = 0.0
+                if bruto_mensual_neto_col: ws.cell(row=row, column=bruto_mensual_neto_col).value = 0.0
+                if neto_quincenal_col: ws.cell(row=row, column=neto_quincenal_col).value = 0.0
+                if descuento_quincenal_acumulado_col: ws.cell(row=row, column=descuento_quincenal_acumulado_col).value = 0.0
+                if observaciones_col:
+                    ws.cell(row=row, column=observaciones_col).value = "BAJA"
                 
             # Reset dynamic deductions in Hoja1
             for col in schema.get("columns", []):
@@ -914,97 +935,111 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                 salario_diario_val = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "salario_diario")).value) if get_field_index(schema, "salario_diario") else 0.0
                 fi_val = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "factor_integracion")).value) if get_field_index(schema, "factor_integracion") else 0.0
                 
-                expected_sdi = round(salario_diario_val * fi_val, 2)
-                expected_sueldo_nominal = round(salario_diario_val * dias_mes, 2)
+                is_baja = (baja_dt is not None and baja_dt <= end_date)
                 
-                if cod_id in agg:
-                    emp_agg = agg[cod_id]
-                    faltas = emp_agg["faltas"]
-                    retardos = emp_agg["retardos"]
-                    punt = emp_agg["puntualidad"]
-                    asist = emp_agg["asistencia"]
-                    forzar_asist = emp_agg.get("forzar_asistencia", "NO") == "SI"
-                    forzar_punt = emp_agg.get("forzar_puntualidad", "NO") == "SI"
-                    forzar_val = emp_agg.get("forzar_vales", "NO") == "SI"
-                    ajuste_vales = emp_agg.get("ajuste_vales")
-                    ajuste_fa = emp_agg.get("ajuste_fondo_ahorro")
-                else:
-                    faltas = 0
-                    retardos = 0
-                    punt = "SI"
-                    asist = "SI"
-                    forzar_asist = False
-                    forzar_punt = False
-                    forzar_val = False
-                    ajuste_vales = None
-                    ajuste_fa = None
-                
-                if (punt == "NO" or retardos >= 3) and not forzar_punt:
+                if is_baja:
+                    expected_sdi = 0.0
+                    expected_sueldo_nominal = 0.0
                     expected_puntualidad = 0.0
-                else:
-                    expected_puntualidad = round(expected_sdi * 0.1 * dias_mes, 2)
-                    
-                if (asist == "NO" or faltas > 0) and not forzar_asist:
                     expected_asistencia = 0.0
-                else:
-                    expected_asistencia = round(expected_sdi * 0.1 * dias_mes, 2)
-                    
-                if ajuste_vales is not None:
-                    expected_vales = ajuste_vales
-                else:
-                    effective_faltas = 0 if forzar_val else faltas
-                    base_vales = uma * (vales_pct / 100.0) * dias_mes
-                    if effective_faltas > 0:
-                        if is_monthly:
-                            expected_vales = base_vales / dias_periodo * (dias_periodo - effective_faltas)
-                        else:
-                            expected_vales = base_vales / 15.0 * (15.0 - effective_faltas)
-                    else:
-                        expected_vales = base_vales
-                    expected_vales = round(expected_vales, 2)
-                    
-                if not is_fa_activo:
+                    expected_vales = 0.0
                     expected_fa = 0.0
-                elif ajuste_fa is not None:
-                    expected_fa = ajuste_fa
+                    expected_percepcion_sueldos = 0.0
+                    expected_bruto_mensual = 0.0
+                    expected_bruto_mensual_neto = 0.0
+                    expected_neto = 0.0
                 else:
-                    expected_fa = min(expected_sueldo_nominal * (fa_pct / 100.0), 1.3 * uma * dias_mes)
-                    expected_fa = round(expected_fa, 2)
+                    expected_sdi = round(salario_diario_val * fi_val, 2)
+                    expected_sueldo_nominal = round(salario_diario_val * dias_mes, 2)
                     
-                # Expected Neto
-                asimilados = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "asimilados")).value) if get_field_index(schema, "asimilados") else 0.0
-                gasolina = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "gasolina")).value) if get_field_index(schema, "gasolina") else 0.0
-                socio = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "socio")).value) if get_field_index(schema, "socio") else 0.0
-                efectivo = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "efectivo")).value) if get_field_index(schema, "efectivo") else 0.0
-                facturado = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "facturado")).value) if get_field_index(schema, "facturado") else 0.0
-                deuda_carro = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "deuda_carro")).value) if get_field_index(schema, "deuda_carro") else 0.0
-                
-                descuento_adicional = float(emp_agg.get("descuento_adicional", 0.0)) if cod_id in agg else 0.0
-                other_deductions_sum = 0.0
-                for col in schema.get("columns", []):
-                    if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
-                        if cod_id in agg:
-                            other_deductions_sum += float(emp_agg.get(col.get("field"), 0.0))
-                        else:
-                            other_deductions_sum += to_float_safe(ws.cell(row=row, column=col.get("index")).value)
-                            
-                total_deductions = descuento_adicional + other_deductions_sum
-                
-                expected_percepcion_sueldos = expected_sueldo_nominal + expected_puntualidad + expected_asistencia + expected_vales + expected_fa
-                expected_bruto_mensual = expected_percepcion_sueldos + asimilados + gasolina + socio + efectivo + facturado + deuda_carro
-                expected_bruto_mensual_neto = expected_bruto_mensual - total_deductions
-                
-                if faltas > 0:
-                    if is_monthly:
-                        dias_laborados = max(0, dias_periodo - faltas)
-                        expected_neto = expected_bruto_mensual_neto / dias_periodo * dias_laborados
+                    if cod_id in agg:
+                        emp_agg = agg[cod_id]
+                        faltas = emp_agg["faltas"]
+                        retardos = emp_agg["retardos"]
+                        punt = emp_agg["puntualidad"]
+                        asist = emp_agg["asistencia"]
+                        forzar_asist = emp_agg.get("forzar_asistencia", "NO") == "SI"
+                        forzar_punt = emp_agg.get("forzar_puntualidad", "NO") == "SI"
+                        forzar_val = emp_agg.get("forzar_vales", "NO") == "SI"
+                        ajuste_vales = emp_agg.get("ajuste_vales")
+                        ajuste_fa = emp_agg.get("ajuste_fondo_ahorro")
                     else:
-                        dias_laborados = max(0, 15 - faltas)
-                        expected_neto = expected_bruto_mensual_neto / 2.0 / 15.0 * dias_laborados
-                else:
-                    expected_neto = expected_bruto_mensual_neto if is_monthly else expected_bruto_mensual_neto / 2.0
+                        faltas = 0
+                        retardos = 0
+                        punt = "SI"
+                        asist = "SI"
+                        forzar_asist = False
+                        forzar_punt = False
+                        forzar_val = False
+                        ajuste_vales = None
+                        ajuste_fa = None
                     
-                expected_neto = round(expected_neto, 2)
+                    if (punt == "NO" or retardos >= 3) and not forzar_punt:
+                        expected_puntualidad = 0.0
+                    else:
+                        expected_puntualidad = round(expected_sdi * 0.1 * dias_mes, 2)
+                        
+                    if (asist == "NO" or faltas > 0) and not forzar_asist:
+                        expected_asistencia = 0.0
+                    else:
+                        expected_asistencia = round(expected_sdi * 0.1 * dias_mes, 2)
+                        
+                    if ajuste_vales is not None:
+                        expected_vales = ajuste_vales
+                    else:
+                        effective_faltas = 0 if forzar_val else faltas
+                        base_vales = uma * (vales_pct / 100.0) * dias_mes
+                        if effective_faltas > 0:
+                            if is_monthly:
+                                expected_vales = base_vales / dias_periodo * (dias_periodo - effective_faltas)
+                            else:
+                                expected_vales = base_vales / 15.0 * (15.0 - effective_faltas)
+                        else:
+                            expected_vales = base_vales
+                        expected_vales = round(expected_vales, 2)
+                        
+                    if not is_fa_activo:
+                        expected_fa = 0.0
+                    elif ajuste_fa is not None:
+                        expected_fa = ajuste_fa
+                    else:
+                        expected_fa = min(expected_sueldo_nominal * (fa_pct / 100.0), 1.3 * uma * dias_mes)
+                        expected_fa = round(expected_fa, 2)
+                        
+                    # Expected Neto
+                    asimilados = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "asimilados")).value) if get_field_index(schema, "asimilados") else 0.0
+                    gasolina = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "gasolina")).value) if get_field_index(schema, "gasolina") else 0.0
+                    socio = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "socio")).value) if get_field_index(schema, "socio") else 0.0
+                    efectivo = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "efectivo")).value) if get_field_index(schema, "efectivo") else 0.0
+                    facturado = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "facturado")).value) if get_field_index(schema, "facturado") else 0.0
+                    deuda_carro = to_float_safe(ws.cell(row=row, column=get_field_index(schema, "deuda_carro")).value) if get_field_index(schema, "deuda_carro") else 0.0
+                    
+                    descuento_adicional = float(emp_agg.get("descuento_adicional", 0.0)) if cod_id in agg else 0.0
+                    other_deductions_sum = 0.0
+                    for col in schema.get("columns", []):
+                        if col.get("category") == "deduction" and col.get("incidence_editable") and col.get("field") != "descuento_adicional":
+                            if cod_id in agg:
+                                other_deductions_sum += float(emp_agg.get(col.get("field"), 0.0))
+                            else:
+                                other_deductions_sum += to_float_safe(ws.cell(row=row, column=col.get("index")).value)
+                                
+                    total_deductions = descuento_adicional + other_deductions_sum
+                    
+                    expected_percepcion_sueldos = expected_sueldo_nominal + expected_puntualidad + expected_asistencia + expected_vales + expected_fa
+                    expected_bruto_mensual = expected_percepcion_sueldos + asimilados + gasolina + socio + efectivo + facturado + deuda_carro
+                    expected_bruto_mensual_neto = expected_bruto_mensual - total_deductions
+                    
+                    if faltas > 0:
+                        if is_monthly:
+                            dias_laborados = max(0, dias_periodo - faltas)
+                            expected_neto = expected_bruto_mensual_neto / dias_periodo * dias_laborados
+                        else:
+                            dias_laborados = max(0, 15 - faltas)
+                            expected_neto = expected_bruto_mensual_neto / 2.0 / 15.0 * dias_laborados
+                    else:
+                        expected_neto = expected_bruto_mensual_neto if is_monthly else expected_bruto_mensual_neto / 2.0
+                        
+                    expected_neto = round(expected_neto, 2)
                 
                 discrepancy_fill = openpyxl.styles.PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                 
@@ -1961,6 +1996,7 @@ def inject_formulas_dynamically(ws, row, schema):
     prima_cell = ensure_absolute_cell(schema.get("prima_cell", "H3"))
     
     period_str = schema.get("period", "16 al 30 Abr 2026")
+    start_date, end_date = None, None
     try:
         start_date, end_date = parse_period_dates(period_str)
         is_monthly = (end_date - start_date).days > 16
@@ -3733,10 +3769,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             fi_col = get_field_index(schema, "factor_integracion")
             
             if fi_col:
-                if ingreso_str and not baja_str:
+                baja_dt = parse_date_robust(baja_str) if baja_str else None
+                _, active_date_obj = parse_period_dates(schema.get("period", ""))
+                is_baja_in_period = (baja_dt is not None and active_date_obj is not None and baja_dt <= active_date_obj)
+                if ingreso_str and not is_baja_in_period:
                     try:
                         ingreso_dt = datetime.strptime(ingreso_str, "%Y-%m-%d")
-                        _, active_date_obj = parse_period_dates(schema.get("period", ""))
                         active_dt = datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
                         diff_yrs = (active_dt - ingreso_dt).days / 365.25
                         years = max(1, int(diff_yrs))

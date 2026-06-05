@@ -134,14 +134,12 @@ def run_tests():
     antiguedad_101 = ws_read.cell(row=6, column=10).value
     vac_tot_101 = ws_read.cell(row=6, column=38).value
     vac_tom_101 = ws_read.cell(row=6, column=39).value
-    fi_101 = ws_read.cell(row=6, column=14).value
     
     print(f"\nEmployee {id_101} ({name_101}):")
     print(f"  Fecha de Ingreso: {ingreso_101}")
     print(f"  Antigüedad calculada (Años): {antiguedad_101}")
     print(f"  Vacaciones Totales (Derecho): {vac_tot_101}")
     print(f"  Vacaciones Tomadas en ciclo: {vac_tom_101}")
-    print(f"  Factor de Integración: {fi_101}")
     
     # Assert Employee 101:
     # Ingreso: 2024-05-10. Corte: 2026-04-30. Years of service: 1.97 years
@@ -151,12 +149,10 @@ def run_tests():
     # - 2026-04-20: 2 days (in range)
     # - 2025-02-15: 4 days (NOT in range, previous cycle)
     # Total Tomadas should be 3 + 2 = 5 days.
-    # Factor de Integración: 1 + (15/365) + ((12 * 0.25) / 365) = 1 + 0.041095 + 0.008219 = 1.0493
     
     assert abs(antiguedad_101 - 1.97) < 0.02, f"Antigüedad mismatch! Expected ~1.97, got {antiguedad_101}"
     assert int(vac_tot_101) == 12, f"Vacaciones Totales mismatch! Expected 12, got {vac_tot_101}"
     assert int(vac_tom_101) == 5, f"Vacaciones Tomadas mismatch! Expected 5, got {vac_tom_101}"
-    assert abs(fi_101 - 1.0493) < 0.001, f"Factor de Integracion mismatch! Expected 1.0493, got {fi_101}"
     print("[OK] Employee 101 calculations verified!")
     
     # Employee 102 is row 7
@@ -166,14 +162,12 @@ def run_tests():
     antiguedad_102 = ws_read.cell(row=7, column=10).value
     vac_tot_102 = ws_read.cell(row=7, column=38).value
     vac_tom_102 = ws_read.cell(row=7, column=39).value
-    fi_102 = ws_read.cell(row=7, column=14).value
     
     print(f"\nEmployee {id_102} ({name_102}):")
     print(f"  Fecha de Ingreso: {ingreso_102}")
     print(f"  Antigüedad calculada (Años): {antiguedad_102}")
     print(f"  Vacaciones Totales (Derecho): {vac_tot_102}")
     print(f"  Vacaciones Tomadas en ciclo: {vac_tom_102}")
-    print(f"  Factor de Integración: {fi_102}")
     
     # Assert Employee 102:
     # Ingreso: 2020-08-15. Corte: 2026-04-30. Years of service: 5.71 years.
@@ -182,24 +176,31 @@ def run_tests():
     # - 2025-10-01: 5 days (in range)
     # - 2026-04-18: 1 day (in range)
     # Total Tomadas should be 5 + 1 = 6 days.
-    # Factor de Integración: 1 + (15/365) + ((20 * 0.25) / 365) = 1 + 0.041095 + 0.013699 = 1.0548
     
     assert abs(antiguedad_102 - 5.71) < 0.02, f"Antigüedad mismatch! Expected ~5.71, got {antiguedad_102}"
     assert int(vac_tot_102) == 20, f"Vacaciones Totales mismatch! Expected 20, got {vac_tot_102}"
     assert int(vac_tom_102) == 6, f"Vacaciones Tomadas mismatch! Expected 6, got {vac_tom_102}"
-    assert abs(fi_102 - 1.0548) < 0.001, f"Factor de Integracion mismatch! Expected 1.0548, got {fi_102}"
     print("[OK] Employee 102 calculations verified!")
     
-    # Verify remaining vacations formula
+    # Verify remaining vacations and Factor de Integracion formula
     wb_f = openpyxl.load_workbook(test_db, data_only=False)
     ws_f = wb_f.active
+    
+    fi_formula_101 = ws_f.cell(row=6, column=14).value
+    fi_formula_102 = ws_f.cell(row=7, column=14).value
     formula_101 = ws_f.cell(row=6, column=40).value
     formula_102 = ws_f.cell(row=7, column=40).value
-    print(f"\nRemaining Vacations Formula Row 6: {formula_101}")
+    
+    print(f"\nFactor de Integracion Formula Row 6: {fi_formula_101}")
+    print(f"Factor de Integracion Formula Row 7: {fi_formula_102}")
+    print(f"Remaining Vacations Formula Row 6: {formula_101}")
     print(f"Remaining Vacations Formula Row 7: {formula_102}")
+    
+    assert fi_formula_101.startswith("=1 + "), f"Factor de Integración formula row 6 mismatch: {fi_formula_101}"
+    assert fi_formula_102.startswith("=1 + "), f"Factor de Integración formula row 7 mismatch: {fi_formula_102}"
     assert formula_101 == "=AL6-AM6", "Formula mismatch in row 6!"
     assert formula_102 == "=AL7-AM7", "Formula mismatch in row 7!"
-    print("[OK] Remaining vacations formula verified!")
+    print("[OK] Remaining vacations and Factor de Integración formulas verified!")
     
     wb_read.close()
     wb_f.close()

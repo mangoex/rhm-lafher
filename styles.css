@@ -1643,3 +1643,33 @@ td.has-formula:hover::after {
   transition: outline var(--transition-fast), background-color var(--transition-fast);
 }
 
+/* Terminated employees (baja) table row style */
+.baja-row {
+  background-color: rgba(244, 63, 94, 0.08) !important;
+  color: #f43f5e !important;
+  opacity: 0.85;
+}
+
+.baja-row td {
+  color: #f43f5e !important;
+}
+
+.baja-row td span.badge.danger {
+  background-color: #f43f5e !important;
+  color: #fff !important;
+}
+
+/* Prenómina terminated employee row style */
+.prenomina-baja-row {
+  background-color: rgba(244, 63, 94, 0.08) !important;
+  color: #f43f5e !important;
+}
+
+.prenomina-baja-row td {
+  color: #f43f5e !important;
+}
+
+.prenomina-baja-row td.has-formula::after {
+  background-color: #f43f5e !important;
+}
+
