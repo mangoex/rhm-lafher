@@ -1073,8 +1073,147 @@ document.addEventListener("DOMContentLoaded", () => {
     incSearchColl.addEventListener("input", renderIncidencesCollList);
   }
 
+  function renderPeriodIncidences() {
+    const tbody = document.getElementById("period-incidences-table-body");
+    if (!tbody) return;
+
+    fetch("/api/incidences?_t=" + Date.now(), {
+      headers: {
+        "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Error fetching period incidences");
+        return res.json();
+      })
+      .then(data => {
+        tbody.innerHTML = "";
+        if (!data || data.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                No hay eventos de incidencias registrados en este período.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        data.forEach(item => {
+          let details = [];
+          if (item.faltas > 0) details.push(`<span class="badge danger" style="font-size:0.7rem; padding:0.15rem 0.35rem;">Faltas: ${item.faltas}</span>`);
+          if (item.retardos > 0) details.push(`<span class="badge warning" style="font-size:0.7rem; padding:0.15rem 0.35rem; color:#fff;">Retardos: ${item.retardos}</span>`);
+          if (item.vacaciones > 0) details.push(`<span class="badge success" style="font-size:0.7rem; padding:0.15rem 0.35rem;">Vacaciones: ${item.vacaciones}</span>`);
+          if (item.descuento_adicional > 0) details.push(`<span class="badge info" style="font-size:0.7rem; padding:0.15rem 0.35rem;">Descuento: $${item.descuento_adicional}</span>`);
+          
+          // Dynamic deductions from schema
+          if (state.schema && state.schema.columns) {
+            state.schema.columns.forEach(col => {
+              if (col.category === "deduction" && col.incidence_editable && col.field !== "descuento_adicional") {
+                const val = item[col.field] || 0;
+                if (val > 0) {
+                  details.push(`<span class="badge info" style="font-size:0.7rem; padding:0.15rem 0.35rem;">${col.header || col.label}: $${val}</span>`);
+                }
+              }
+            });
+          }
+
+          const obsUpper = (item.observaciones || "").trim().toUpperCase();
+          const isStatusEvent = obsUpper === "ALTA" || obsUpper === "BAJA" || obsUpper === "REINGRESO" ||
+                                obsUpper.startsWith("ALTA:") || obsUpper.startsWith("BAJA:") || obsUpper.startsWith("REINGRESO:");
+
+          if (isStatusEvent) {
+            let badgeClass = "info";
+            if (obsUpper.includes("BAJA")) badgeClass = "danger";
+            else if (obsUpper.includes("ALTA") || obsUpper.includes("REINGRESO")) badgeClass = "success";
+            details.push(`<span class="badge ${badgeClass}" style="font-size:0.7rem; padding:0.15rem 0.35rem; font-weight:bold;">${item.observaciones}</span>`);
+          }
+
+          let overrides = [];
+          if (item.forzar_asistencia === "SI") overrides.push(`<span class="badge info" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Forzar Asistencia</span>`);
+          if (item.forzar_puntualidad === "SI") overrides.push(`<span class="badge info" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Forzar Puntualidad</span>`);
+          if (item.forzar_vales === "SI") overrides.push(`<span class="badge info" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Forzar Vales</span>`);
+          if (item.ajuste_vales !== null && item.ajuste_vales !== undefined && item.ajuste_vales !== "") {
+            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. Vales: $${item.ajuste_vales}</span>`);
+          }
+          if (item.ajuste_fondo_ahorro !== null && item.ajuste_fondo_ahorro !== undefined && item.ajuste_fondo_ahorro !== "") {
+            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. FA: $${item.ajuste_fondo_ahorro}</span>`);
+          }
+
+          const detailHtml = details.length > 0 ? details.join(" ") : "-";
+          const overridesHtml = overrides.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${overrides.join("")}</div>` : "-";
+          const displayObs = isStatusEvent ? "Evento de Cambio de Estado / Registro de Colaborador" : (item.observaciones || "-");
+
+          tbody.innerHTML += `
+            <tr>
+              <td class="align-center">${item.date}</td>
+              <td class="align-center" style="font-family:monospace; font-weight:600;">${item.id}</td>
+              <td>${item.nombre}</td>
+              <td>${detailHtml}</td>
+              <td>${overridesHtml}</td>
+              <td class="align-left" title="${item.observaciones || ''}">${displayObs}</td>
+              <td class="align-center">
+                <button class="btn btn-danger btn-sm delete-period-inc-btn" data-id="${item.id}" data-date="${item.date}" title="Eliminar Evento">
+                  <i data-lucide="trash-2"></i>
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+
+        document.querySelectorAll(".delete-period-inc-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const empId = btn.getAttribute("data-id");
+            const incDate = btn.getAttribute("data-date");
+            if (confirm(`¿Estás seguro de que deseas eliminar el evento de incidencia registrado para el colaborador ${empId} en la fecha ${incDate}?`)) {
+              deletePeriodIncidence(empId, incDate);
+            }
+          });
+        });
+
+        if (window.lucide) lucide.createIcons();
+      })
+      .catch(err => {
+        console.error("Error rendering period incidences:", err);
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 2rem; color: var(--danger);">
+              Error al cargar el historial de incidencias del servidor.
+            </td>
+          </tr>
+        `;
+      });
+  }
+
+  function deletePeriodIncidence(employeeId, date) {
+    fetch(`/api/incidences?employee_id=${encodeURIComponent(employeeId)}&date=${encodeURIComponent(date)}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": "Bearer " + (localStorage.getItem("rhm_session_token") || "")
+      }
+    })
+      .then(res => res.json())
+      .then(resData => {
+        if (resData.error) {
+          showToast(resData.error, "error");
+          return;
+        }
+        showToast("Incidencia eliminada con éxito.");
+        loadState().then(() => {
+          if (state.selectedIncidenceEmployeeId) {
+            loadIncidencesForSelectedEmployee(state.selectedIncidenceEmployeeId);
+          }
+        });
+      })
+      .catch(err => {
+        console.error("Error al eliminar incidencia:", err);
+        showToast("Error al conectar con el servidor para eliminar la incidencia.", "error");
+      });
+  }
+
   function renderIncidences() {
     renderIncidencesCollList();
+    renderPeriodIncidences();
     const activeEmployees = state.employees.filter(e => !(e.baja));
     if (activeEmployees.length > 0 && !state.selectedIncidenceEmployeeId) {
       selectIncidenceEmployee(activeEmployees[0].id);

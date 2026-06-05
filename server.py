@@ -3734,9 +3734,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     found_row = row
                 row += 1
 
+            old_baja = None
             if found_row:
                 target_row = found_row
                 print(f"Updating collaborator {cod} at row {target_row}")
+                baja_col_idx = get_field_index(schema, "baja")
+                if baja_col_idx:
+                    old_baja = ws.cell(row=found_row, column=baja_col_idx).value
             else:
                 target_row = totals_row
                 ws.insert_rows(target_row, amount=1)
@@ -3819,6 +3823,69 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             if neto_quincenal_col:
                 neto_quincenal_letter = get_field_letter(schema, "neto_quincenal")
                 ws.cell(row=new_totals_row, column=neto_quincenal_col).value = f"=SUM({neto_quincenal_letter}{headers_row + 1}:{neto_quincenal_letter}{new_totals_row-1})"
+
+            # Detect status changes and log to Incidencias sheet
+            new_baja = body.get("baja")
+            
+            def standardize_date_str(val):
+                if not val:
+                    return None
+                dt = parse_date_robust(val)
+                return dt.strftime("%Y-%m-%d") if dt else None
+                
+            old_baja_str = standardize_date_str(old_baja)
+            new_baja_str = standardize_date_str(new_baja)
+            
+            nombre_emp = body.get("nombre", "")
+            
+            if not found_row:
+                # ALTA event
+                ingreso_str = standardize_date_str(body.get("ingreso"))
+                if not ingreso_str:
+                    ingreso_str = datetime.now().strftime("%Y-%m-%d")
+                save_incidence_to_excel(wb, {
+                    "id": cod,
+                    "nombre": nombre_emp,
+                    "date": ingreso_str,
+                    "faltas": 0,
+                    "retardos": 0,
+                    "vacaciones": 0,
+                    "descuento_adicional": 0.0,
+                    "puntualidad": "SI",
+                    "asistencia": "SI",
+                    "observaciones": "ALTA"
+                })
+            else:
+                if old_baja_str != new_baja_str:
+                    if old_baja_str is None and new_baja_str is not None:
+                        # BAJA event
+                        save_incidence_to_excel(wb, {
+                            "id": cod,
+                            "nombre": nombre_emp,
+                            "date": new_baja_str,
+                            "faltas": 0,
+                            "retardos": 0,
+                            "vacaciones": 0,
+                            "descuento_adicional": 0.0,
+                            "puntualidad": "SI",
+                            "asistencia": "SI",
+                            "observaciones": "BAJA"
+                        })
+                    elif old_baja_str is not None and new_baja_str is None:
+                        # REINGRESO event
+                        today_str = datetime.now().strftime("%Y-%m-%d")
+                        save_incidence_to_excel(wb, {
+                            "id": cod,
+                            "nombre": nombre_emp,
+                            "date": today_str,
+                            "faltas": 0,
+                            "retardos": 0,
+                            "vacaciones": 0,
+                            "descuento_adicional": 0.0,
+                            "puntualidad": "SI",
+                            "asistencia": "SI",
+                            "observaciones": "REINGRESO"
+                        })
 
             # Save file
             save_workbook_agnostic(wb, excel_path)
