@@ -267,31 +267,29 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  let periodControlsInitialized = false;
   function initPeriodControls() {
+    if (periodControlsInitialized) return;
+
     const btnQuincenal = document.getElementById("btn-period-quincenal");
     const btnMensual = document.getElementById("btn-period-mensual");
     const periodSelect = document.getElementById("period-select");
     
     if (btnQuincenal && btnMensual) {
-      const newQuincenal = btnQuincenal.cloneNode(true);
-      const newMensual = btnMensual.cloneNode(true);
-      btnQuincenal.parentNode.replaceChild(newQuincenal, btnQuincenal);
-      btnMensual.parentNode.replaceChild(newMensual, btnMensual);
-
-      newQuincenal.addEventListener("click", () => {
-        if (newQuincenal.classList.contains("active")) return;
-        newQuincenal.classList.add("active");
-        newMensual.classList.remove("active");
+      btnQuincenal.addEventListener("click", () => {
+        if (btnQuincenal.classList.contains("active")) return;
+        btnQuincenal.classList.add("active");
+        btnMensual.classList.remove("active");
         
         populatePeriodDropdown("quincenal", state.period);
         const activeSelect = document.getElementById("period-select");
         saveSelectedPeriod(activeSelect ? activeSelect.value : "");
       });
       
-      newMensual.addEventListener("click", () => {
-        if (newMensual.classList.contains("active")) return;
-        newMensual.classList.add("active");
-        newQuincenal.classList.remove("active");
+      btnMensual.addEventListener("click", () => {
+        if (btnMensual.classList.contains("active")) return;
+        btnMensual.classList.add("active");
+        btnQuincenal.classList.remove("active");
         
         populatePeriodDropdown("mensual", state.period);
         const activeSelect = document.getElementById("period-select");
@@ -300,12 +298,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     if (periodSelect) {
-      const newPeriodSelect = periodSelect.cloneNode(true);
-      periodSelect.parentNode.replaceChild(newPeriodSelect, periodSelect);
-      newPeriodSelect.addEventListener("change", (e) => {
+      periodSelect.addEventListener("change", (e) => {
         saveSelectedPeriod(e.target.value);
       });
     }
+    
+    periodControlsInitialized = true;
   }
 
   // 2. Load State from Python API
