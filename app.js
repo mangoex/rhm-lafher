@@ -421,8 +421,8 @@ document.addEventListener("DOMContentLoaded", () => {
               btnMensual.classList.remove("active");
             }
           }
-          populatePeriodDropdown(isMonthly ? "mensual" : "quincenal", state.period);
           initPeriodControls();
+          populatePeriodDropdown(isMonthly ? "mensual" : "quincenal", state.period);
         }
 
         checkAndRenderConfigAlerts();
