@@ -640,7 +640,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (emp.salario_diario && !isBaja) {
       const losesPuntualidad = (emp.retardos >= 3) && (emp.forzar_puntualidad !== "SI");
       if (!losesPuntualidad && sdi > 0) {
-        puntualidad = sdi * 0.10 * cfg.diasMes;
+        puntualidad = emp.salario_diario * 0.10 * cfg.diasMes;
       }
     }
     
@@ -649,7 +649,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (emp.salario_diario && !isBaja) {
       const losesAsistencia = (emp.faltas > 0) && (emp.forzar_asistencia !== "SI");
       if (!losesAsistencia && sdi > 0) {
-        asistencia = sdi * 0.10 * cfg.diasMes;
+        asistencia = emp.salario_diario * 0.10 * cfg.diasMes;
       }
     }
     
@@ -700,10 +700,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const sueldoBrutoMensual = percepcionSueldos + totalOtros;
     const sueldoBrutoQuincenalNormal = isMonthly ? sueldoBrutoMensual : (sueldoBrutoMensual / 2);
     
-    // Absences deduction impact
+    // Absences deduction impact (Nominal Sueldo base discount only)
     const faltas = emp.faltas || 0;
     const divisorFaltas = isMonthly ? diasPeriodo : 15;
-    const descuentoFaltas = (sueldoBrutoQuincenalNormal / divisorFaltas) * faltas;
+    const descuentoFaltas = isMonthly
+      ? (sueldoNominal / divisorFaltas) * faltas
+      : (sueldoNominal / 2 / 15) * faltas;
     
     // Dynamic Additional Deductions sum
     let descuentoAdicional = 0;
@@ -717,8 +719,8 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Final Net Period matches Excel formula
     const sueldoNetoQuincenal = isMonthly 
-      ? Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / diasPeriodo * (diasPeriodo - faltas))
-      : Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 / 15 * (15 - faltas));
+      ? Math.max(0, (sueldoBrutoMensual - descuentoAdicional) - descuentoFaltas)
+      : Math.max(0, (sueldoBrutoMensual - descuentoAdicional) / 2 - descuentoFaltas);
     
     return {
       antiguedad: yearsCompleted,
@@ -1010,27 +1012,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
       tbody.innerHTML += `
         <tr class="${isBaja ? 'baja-row' : ''}">
-          <td><span style="font-family: monospace; font-weight:600;">${emp.id}</span></td>
+          <td><span style="font-family: monospace; font-weight:600;">${escapeHtml(emp.id)}</span></td>
           <td>
             <div class="coll-row-flex">
-              <div class="collaborator-avatar">${initials}</div>
+              <div class="collaborator-avatar">${escapeHtml(initials)}</div>
               <div>
-                <div style="font-weight: 600;">${emp.nombre || '-'}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">No. ${emp.no}</div>
+                <div style="font-weight: 600;">${escapeHtml(emp.nombre || '-')}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">No. ${escapeHtml(emp.no || '-')}</div>
               </div>
             </div>
           </td>
-          <td>${emp.empresa || '-'}</td>
+          <td>${escapeHtml(emp.empresa || '-')}</td>
           <td>
-            <div>${emp.area || '-'}</div>
-            <div style="font-size:0.78rem; color:var(--text-dark);">${emp.depto || '-'}</div>
+            <div>${escapeHtml(emp.area || '-')}</div>
+            <div style="font-size:0.78rem; color:var(--text-dark);">${escapeHtml(emp.depto || '-')}</div>
           </td>
-          <td>${emp.puesto || '-'}</td>
-          <td>${emp.ingreso || '-'}</td>
+          <td>${escapeHtml(emp.puesto || '-')}</td>
+          <td>${escapeHtml(emp.ingreso || '-')}</td>
           <td>${years.toFixed(1)} años</td>
           <td>
             <div style="display:flex; flex-wrap:wrap; gap:0.25rem; max-width: 200px;">
-              ${schemes.map(s => `<span class="badge info" style="font-size:0.65rem; padding: 0.1rem 0.35rem;">${s}</span>`).join("")}
+              ${schemes.map(s => `<span class="badge info" style="font-size:0.65rem; padding: 0.1rem 0.35rem;">${escapeHtml(s)}</span>`).join("")}
             </div>
           </td>
           <td>
@@ -1038,10 +1040,10 @@ document.addEventListener("DOMContentLoaded", () => {
           </td>
           <td>
             <div class="action-buttons">
-              <button class="btn btn-secondary btn-sm edit-coll-btn" data-id="${emp.id}" title="Editar Esquema">
+              <button class="btn btn-secondary btn-sm edit-coll-btn" data-id="${escapeHtml(emp.id)}" title="Editar Esquema">
                 <i data-lucide="edit-3"></i>
               </button>
-              <button class="btn ${isBaja ? 'btn-secondary' : 'btn-danger'} btn-sm toggle-status-btn" data-id="${emp.id}" title="${isBaja ? 'Reingreso' : 'Dar de Baja'}">
+              <button class="btn ${isBaja ? 'btn-secondary' : 'btn-danger'} btn-sm toggle-status-btn" data-id="${escapeHtml(emp.id)}" title="${isBaja ? 'Reingreso' : 'Dar de Baja'}">
                 <i data-lucide="${isBaja ? 'user-check' : 'user-x'}"></i>
               </button>
             </div>
@@ -1110,7 +1112,7 @@ document.addEventListener("DOMContentLoaded", () => {
               if (col.category === "deduction" && col.incidence_editable && col.field !== "descuento_adicional") {
                 const val = item[col.field] || 0;
                 if (val > 0) {
-                  details.push(`<span class="badge info" style="font-size:0.7rem; padding:0.15rem 0.35rem;">${col.header || col.label}: $${val}</span>`);
+                  details.push(`<span class="badge info" style="font-size:0.7rem; padding:0.15rem 0.35rem;">${escapeHtml(col.header || col.label)}: $${val}</span>`);
                 }
               }
             });
@@ -1124,7 +1126,7 @@ document.addEventListener("DOMContentLoaded", () => {
             let badgeClass = "info";
             if (obsUpper.includes("BAJA")) badgeClass = "danger";
             else if (obsUpper.includes("ALTA") || obsUpper.includes("REINGRESO")) badgeClass = "success";
-            details.push(`<span class="badge ${badgeClass}" style="font-size:0.7rem; padding:0.15rem 0.35rem; font-weight:bold;">${item.observaciones}</span>`);
+            details.push(`<span class="badge ${badgeClass}" style="font-size:0.7rem; padding:0.15rem 0.35rem; font-weight:bold;">${escapeHtml(item.observaciones)}</span>`);
           }
 
           let overrides = [];
@@ -1132,10 +1134,10 @@ document.addEventListener("DOMContentLoaded", () => {
           if (item.forzar_puntualidad === "SI") overrides.push(`<span class="badge info" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Forzar Puntualidad</span>`);
           if (item.forzar_vales === "SI") overrides.push(`<span class="badge info" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Forzar Vales</span>`);
           if (item.ajuste_vales !== null && item.ajuste_vales !== undefined && item.ajuste_vales !== "") {
-            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. Vales: $${item.ajuste_vales}</span>`);
+            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. Vales: $${escapeHtml(item.ajuste_vales)}</span>`);
           }
           if (item.ajuste_fondo_ahorro !== null && item.ajuste_fondo_ahorro !== undefined && item.ajuste_fondo_ahorro !== "") {
-            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. FA: $${item.ajuste_fondo_ahorro}</span>`);
+            overrides.push(`<span class="badge warning" style="font-size: 0.65rem; padding: 0.1rem 0.3rem;">Aj. FA: $${escapeHtml(item.ajuste_fondo_ahorro)}</span>`);
           }
 
           const detailHtml = details.length > 0 ? details.join(" ") : "-";
@@ -1144,14 +1146,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
           tbody.innerHTML += `
             <tr>
-              <td class="align-center">${item.date}</td>
-              <td class="align-center" style="font-family:monospace; font-weight:600;">${item.id}</td>
-              <td>${item.nombre}</td>
+              <td class="align-center">${escapeHtml(item.date)}</td>
+              <td class="align-center" style="font-family:monospace; font-weight:600;">${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.nombre)}</td>
               <td>${detailHtml}</td>
               <td>${overridesHtml}</td>
-              <td class="align-left" title="${item.observaciones || ''}">${displayObs}</td>
+              <td class="align-left" title="${escapeHtml(item.observaciones || '')}">${escapeHtml(displayObs)}</td>
               <td class="align-center">
-                <button class="btn btn-danger btn-sm delete-period-inc-btn" data-id="${item.id}" data-date="${item.date}" title="Eliminar Evento">
+                <button class="btn btn-danger btn-sm delete-period-inc-btn" data-id="${escapeHtml(item.id)}" data-date="${escapeHtml(item.date)}" title="Eliminar Evento">
                   <i data-lucide="trash-2"></i>
                 </button>
               </td>
@@ -1247,10 +1249,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const statusDot = hasIncidences ? `<span class="badge warning" style="float:right; font-size:0.6rem; padding:0.15rem 0.35rem;">Incidencias</span>` : "";
       
       listDiv.innerHTML += `
-        <div class="list-item-coll ${activeClass}" data-id="${emp.id}">
+        <div class="list-item-coll ${activeClass}" data-id="${escapeHtml(emp.id)}">
           ${statusDot}
-          <h4></h4>
-          <p> | Cód. ${emp.id}</p>
+          <h4>${escapeHtml(emp.nombre)}</h4>
+          <p>${escapeHtml(emp.puesto)} | Cód. ${escapeHtml(emp.id)}</p>
         </div>
       `;
     });
@@ -1768,13 +1770,13 @@ document.addEventListener("DOMContentLoaded", () => {
       let rowHtml = `
         <tr ${rowClassAttr}>
           <td class="align-center">${calc.isBaja ? '-' : idx}</td>
-          <td class="align-center" style="font-family:monospace; font-weight:600;" data-field="id">${emp.id}</td>
-          <td class="align-center" data-field="empresa">${emp.empresa || '-'}</td>
+          <td class="align-center" style="font-family:monospace; font-weight:600;" data-field="id">${escapeHtml(emp.id)}</td>
+          <td class="align-center" data-field="empresa">${escapeHtml(emp.empresa || '-')}</td>
           <td class="align-left" style="font-weight: 500;" data-field="nombre">
-            ${emp.nombre || '-'}
+            ${escapeHtml(emp.nombre || '-')}
             ${calc.isBaja ? '<span class="badge danger" style="font-size:0.55rem; padding:0.05rem 0.25rem; margin-left:0.25rem;">Baja</span>' : ''}
           </td>
-          <td class="align-center" data-field="ingreso">${emp.ingreso || '-'}</td>
+          <td class="align-center" data-field="ingreso">${escapeHtml(emp.ingreso || '-')}</td>
           <td ${getCellAttrs('antiguedad', '', 'align-center')}>${calc.antiguedad.toFixed(1)}</td>
           <td ${getCellAttrs('vacaciones_totales', 'background: rgba(16, 185, 129, 0.03); font-weight: 600;', 'align-center')}>${calc.isBaja ? '-' : vacTot}</td>
           <td ${getCellAttrs('vacaciones_tomadas', 'background: rgba(16, 185, 129, 0.03);', 'align-center')}>${calc.isBaja ? '-' : (vacTom > 0 ? vacTom : '-')}</td>
@@ -1821,7 +1823,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       rowHtml += `
           <td ${getCellAttrs('neto_quincenal', 'font-weight: 700; color: #fff; background: rgba(99,102,241,0.05);')}>${calc.sueldoNetoQuincenal > 0 ? formatNumber(calc.sueldoNetoQuincenal) : '-'}</td>
-          <td ${getCellAttrs('observaciones', 'font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;', 'align-left')} title="${emp.observaciones || ''}">${emp.observaciones || '-'}</td>
+          <td ${getCellAttrs('observaciones', 'font-size:0.75rem; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;', 'align-left')} title="${escapeHtml(emp.observaciones || '')}">${escapeHtml(emp.observaciones || '-')}</td>
         </tr>
       `;
 

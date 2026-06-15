@@ -794,10 +794,10 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                 if neto_quincenal_col and bruto_mensual_neto_letter:
                     ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
                 
-                if puntualidad_col and sdi_letter:
-                    ws.cell(row=row, column=puntualidad_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
-                if asistencia_col and sdi_letter:
-                    ws.cell(row=row, column=asistencia_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
+                if puntualidad_col and salario_diario_letter:
+                    ws.cell(row=row, column=puntualidad_col).value = f"={salario_diario_letter}{row}*0.1*{dias_mes_cell}"
+                if asistencia_col and salario_diario_letter:
+                    ws.cell(row=row, column=asistencia_col).value = f"={salario_diario_letter}{row}*0.1*{dias_mes_cell}"
                 
                 if vales_col:
                     ws.cell(row=row, column=vales_col).value = f"={uma_cell}*({vales_pct_cell}/100)*{dias_mes_cell}"
@@ -869,11 +869,9 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                 if neto_quincenal_col and bruto_mensual_neto_letter:
                     if faltas > 0:
                         if is_monthly:
-                            dias_laborados = max(0, dias_periodo - faltas)
-                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/{dias_periodo}*{dias_laborados}"
+                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}-({sueldo_nominal_letter}{row}/{dias_periodo}*{faltas})"
                         else:
-                            dias_laborados = max(0, 15 - faltas)
-                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2/15*{dias_laborados}"
+                            ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}/2-({sueldo_nominal_letter}{row}/2/15*{faltas})"
                     else:
                         ws.cell(row=row, column=neto_quincenal_col).value = f"={bruto_mensual_neto_letter}{row}" if is_monthly else f"={bruto_mensual_neto_letter}{row}/2"
                         
@@ -883,17 +881,17 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                 if observaciones_col and obs_list:
                     ws.cell(row=row, column=observaciones_col).value = "; ".join(obs_list)
                     
-                if puntualidad_col and sdi_letter:
+                if puntualidad_col and salario_diario_letter:
                     if (punt == "NO" or retardos >= 3) and not forzar_punt:
                         ws.cell(row=row, column=puntualidad_col).value = 0.0
                     else:
-                        ws.cell(row=row, column=puntualidad_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
+                        ws.cell(row=row, column=puntualidad_col).value = f"={salario_diario_letter}{row}*0.1*{dias_mes_cell}"
                     
-                if asistencia_col and sdi_letter:
+                if asistencia_col and salario_diario_letter:
                     if (asist == "NO" or faltas > 0) and not forzar_asist:
                         ws.cell(row=row, column=asistencia_col).value = 0.0
                     else:
-                        ws.cell(row=row, column=asistencia_col).value = f"={sdi_letter}{row}*0.1*{dias_mes_cell}"
+                        ws.cell(row=row, column=asistencia_col).value = f"={salario_diario_letter}{row}*0.1*{dias_mes_cell}"
                         
                 # Overridden/proportional vales
                 if vales_col:
@@ -977,12 +975,12 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                     if (punt == "NO" or retardos >= 3) and not forzar_punt:
                         expected_puntualidad = 0.0
                     else:
-                        expected_puntualidad = round(expected_sdi * 0.1 * dias_mes, 2)
+                        expected_puntualidad = round(salario_diario_val * 0.1 * dias_mes, 2)
                         
                     if (asist == "NO" or faltas > 0) and not forzar_asist:
                         expected_asistencia = 0.0
                     else:
-                        expected_asistencia = round(expected_sdi * 0.1 * dias_mes, 2)
+                        expected_asistencia = round(salario_diario_val * 0.1 * dias_mes, 2)
                         
                     if ajuste_vales is not None:
                         expected_vales = ajuste_vales
@@ -1029,15 +1027,14 @@ def recompile_active_period_incidences(wb, schema, original_values=None):
                     expected_bruto_mensual = expected_percepcion_sueldos + asimilados + gasolina + socio + efectivo + facturado + deuda_carro
                     expected_bruto_mensual_neto = expected_bruto_mensual - total_deductions
                     
+                    expected_neto_base = expected_bruto_mensual_neto if is_monthly else expected_bruto_mensual_neto / 2.0
                     if faltas > 0:
                         if is_monthly:
-                            dias_laborados = max(0, dias_periodo - faltas)
-                            expected_neto = expected_bruto_mensual_neto / dias_periodo * dias_laborados
+                            expected_neto = expected_neto_base - (expected_sueldo_nominal / dias_periodo * faltas)
                         else:
-                            dias_laborados = max(0, 15 - faltas)
-                            expected_neto = expected_bruto_mensual_neto / 2.0 / 15.0 * dias_laborados
+                            expected_neto = expected_neto_base - (expected_sueldo_nominal / 2.0 / 15.0 * faltas)
                     else:
-                        expected_neto = expected_bruto_mensual_neto if is_monthly else expected_bruto_mensual_neto / 2.0
+                        expected_neto = expected_neto_base
                         
                     expected_neto = round(expected_neto, 2)
                 
@@ -2339,21 +2336,20 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             if path_only == "/api/parse-docx":
                 self.parse_docx_endpoint(post_data)
                 return
-            elif path_only == "/api/upload-database":
-                self.upload_database_endpoint(post_data)
-                return
-            elif path_only == "/api/upload-rules":
-                self.upload_rules_endpoint(post_data)
-                return
 
             try:
-                body = json.loads(post_data.decode("utf-8")) if post_data else {}
+                # Avoid JSON parsing for binary upload endpoints
+                body = json.loads(post_data.decode("utf-8")) if (post_data and path_only not in ["/api/upload-database", "/api/upload-rules"]) else {}
             except Exception as e:
                 self.send_json({"error": f"Invalid JSON: {e}"}, 400)
                 return
 
             with EXCEL_LOCK:
-                if path_only == "/api/collaborator":
+                if path_only == "/api/upload-database":
+                    self.upload_database_endpoint(post_data)
+                elif path_only == "/api/upload-rules":
+                    self.upload_rules_endpoint(post_data)
+                elif path_only == "/api/collaborator":
                     self.save_collaborator(body)
                 elif path_only == "/api/companies":
                     self.save_companies(body)
@@ -4270,6 +4266,11 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"error": "No se encontraron colaboradores en la base de datos"}, 404)
                 return
 
+            period_str = schema.get("period", "16 al 30 Abr 2026")
+            start_date, end_date = parse_period_dates(period_str)
+            dias_periodo = (end_date - start_date).days + 1
+            is_monthly = dias_periodo > 16
+
             custom_rules = schema.get("payroll_rules", "").strip()
             rules_source = "custom" if custom_rules else "official"
             
@@ -4281,28 +4282,142 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     "- Factor de Integración = 1 + (Aguinaldo / 365) + (Vacaciones * Prima_Vacacional / 365)\n"
                     "- Salario Diario Integrado (SDI) = Salario Diario * Factor de Integración\n"
                     "- Sueldo Nominal Mensual = Salario Diario * Días del Mes (Row 3)\n"
-                    "- Premios de Asistencia y Puntualidad: 10% del SDI * Días del Mes cada uno\n"
+                    "- Premios de Asistencia y Puntualidad: 10% del Salario Diario Nominal * Días del Mes cada uno\n"
                     "- Vales de Despensa = UMA * Vales% * Días del Mes\n"
                     "- Fondo de Ahorro = Sueldo Nominal * FA% (si aplica)\n"
                     "- Sueldo Bruto Mensual = Total Percepciones + Otros Ingresos\n"
                     "- Sueldo Bruto Quincenal normal = Bruto Mensual / 2\n"
-                    "- Descuento de Faltas proporcional = (Bruto Quincenal / 15) * Faltas\n"
-                    "- Sueldo Neto Quincenal = (Sueldo Bruto Mensual - Descuento Adicional - Deuda Carro) / 2 / 15 * (15 - Faltas)"
+                    f"- Descuento de Faltas proporcional = (Sueldo Nominal / {dias_periodo}) * Faltas (si es mensual) o (Sueldo Nominal / 2 / 15) * Faltas (si es quincenal)\n"
+                    "- Sueldo Neto Quincenal/Mensual = (Sueldo Bruto Mensual - Descuento Adicional) - Descuento de Faltas (si es mensual) o (Sueldo Bruto Mensual - Descuento Adicional) / 2 - Descuento de Faltas (si es quincenal)"
                 )
 
             if not is_global:
                 found_row, emp_data = all_employees_data[0]
                 nombre = emp_data.get("nombre", "Sin Nombre")
                 salario_diario = emp_data.get("salario_diario", 0.0)
-                fi = emp_data.get("factor_integracion", 1.0493)
-                sdi = emp_data.get("sdi", 0.0)
-                sueldo_nominal = emp_data.get("sueldo_nominal", 0.0)
-                puntualidad = emp_data.get("puntualidad", 0.0)
-                asistencia = emp_data.get("asistencia", 0.0)
-                vales_despensa = emp_data.get("vales_despensa", 0.0)
-                fondo_ahorro = emp_data.get("fondo_ahorro", 0.0)
+                ingreso_str = emp_data.get("ingreso", "")
+                
+                # Dynamic years_of_labores and vacations
+                years_of_labores = 0.0
+                vac = 12
+                if ingreso_str:
+                    try:
+                        import datetime
+                        ingreso_dt = datetime.datetime.strptime(ingreso_str, "%Y-%m-%d")
+                        _, active_date_obj = parse_period_dates(schema.get("period", ""))
+                        active_dt = datetime.datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
+                        years_of_labores = (active_dt - ingreso_dt).days / 365.25
+                        y = max(1, int(years_of_labores))
+                        vac = calculate_vacation_days(y)
+                    except:
+                        pass
+
+                # Aggregated incidences and overrides
+                emp_inc = {
+                    "faltas": 0,
+                    "retardos": 0,
+                    "vacaciones": 0,
+                    "descuento_adicional": 0.0,
+                    "puntualidad": "SI",
+                    "asistencia": "SI",
+                    "forzar_asistencia": "NO",
+                    "forzar_puntualidad": "NO",
+                    "forzar_vales": "NO",
+                    "ajuste_vales": None,
+                    "ajuste_fondo_ahorro": None,
+                    "observaciones": []
+                }
+                
+                if "Incidencias" in wb_v.sheetnames:
+                    ws_inc = wb_v["Incidencias"]
+                    max_col = ws_inc.max_column
+                    for r in range(2, ws_inc.max_row + 1):
+                        date_val = ws_inc.cell(row=r, column=1).value
+                        if date_val:
+                            try:
+                                import datetime
+                                if isinstance(date_val, datetime.date) or isinstance(date_val, datetime.datetime):
+                                    row_date = date_val.date() if isinstance(date_val, datetime.datetime) else date_val
+                                else:
+                                    row_date = datetime.datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date()
+                                
+                                if start_date <= row_date <= end_date:
+                                    c_id = clean_employee_id(ws_inc.cell(row=r, column=2).value)
+                                    if c_id and c_id == clean_employee_id(cod):
+                                        emp_inc["faltas"] += int(ws_inc.cell(row=r, column=4).value or 0)
+                                        emp_inc["retardos"] += int(ws_inc.cell(row=r, column=5).value or 0)
+                                        emp_inc["vacaciones"] += int(ws_inc.cell(row=r, column=6).value or 0)
+                                        emp_inc["descuento_adicional"] += float(ws_inc.cell(row=r, column=7).value or 0.0)
+                                        
+                                        if ws_inc.cell(row=r, column=8).value == "NO":
+                                            emp_inc["puntualidad"] = "NO"
+                                        if ws_inc.cell(row=r, column=9).value == "NO":
+                                            emp_inc["asistencia"] = "NO"
+                                            
+                                        if max_col >= 11 and str(ws_inc.cell(row=r, column=11).value).upper() == "SI":
+                                            emp_inc["forzar_asistencia"] = "SI"
+                                        if max_col >= 12 and str(ws_inc.cell(row=r, column=12).value).upper() == "SI":
+                                            emp_inc["forzar_puntualidad"] = "SI"
+                                        if max_col >= 13 and str(ws_inc.cell(row=r, column=13).value).upper() == "SI":
+                                            emp_inc["forzar_vales"] = "SI"
+                                            
+                                        if max_col >= 14 and ws_inc.cell(row=r, column=14).value is not None:
+                                            emp_inc["ajuste_vales"] = float(str(ws_inc.cell(row=r, column=14).value).replace(",", "").strip())
+                                        if max_col >= 15 and ws_inc.cell(row=r, column=15).value is not None:
+                                            emp_inc["ajuste_fondo_ahorro"] = float(str(ws_inc.cell(row=r, column=15).value).replace(",", "").strip())
+                                            
+                                        obs_val = ws_inc.cell(row=r, column=10).value
+                                        if obs_val and str(obs_val).strip():
+                                            emp_inc["observaciones"].append(str(obs_val).strip())
+                            except Exception as ex:
+                                print("Error parsing incidence row in explain_payroll:", ex)
+
+                # Get base values from excel variables or configuration
                 fondo_ahorro_activo = "SI" if emp_data.get("fondo_ahorro_activo", False) else "NO"
-                percepcion_sueldos = emp_data.get("percepcion_sueldos", 0.0)
+                
+                faltas = emp_inc["faltas"]
+                retardos = emp_inc["retardos"]
+                descuento_adicional = emp_inc["descuento_adicional"]
+                
+                forzar_asistencia = emp_inc["forzar_asistencia"] == "SI"
+                forzar_puntualidad = emp_inc["forzar_puntualidad"] == "SI"
+                forzar_vales = emp_inc["forzar_vales"] == "SI"
+                ajuste_vales = emp_inc["ajuste_vales"]
+                ajuste_fondo_ahorro = emp_inc["ajuste_fondo_ahorro"]
+                
+                # Math calculations
+                fi = 1.0 + (aguinaldo / 365.0) + (vac * (prima / 100.0) / 365.0)
+                sdi = salario_diario * fi
+                sueldo_nominal = salario_diario * dias_mes
+                
+                loses_puntualidad = (retardos >= 3 or emp_inc["puntualidad"] == "NO") and not forzar_puntualidad
+                puntualidad = 0.0 if loses_puntualidad else (salario_diario * 0.1 * dias_mes)
+                
+                loses_asistencia = (faltas > 0 or emp_inc["asistencia"] == "NO") and not forzar_asistencia
+                asistencia = 0.0 if loses_asistencia else (salario_diario * 0.1 * dias_mes)
+                
+                if ajuste_vales is not None:
+                    vales_despensa = ajuste_vales
+                else:
+                    base_vales = uma * (vales_pct / 100.0) * dias_mes
+                    effective_faltas = 0 if forzar_vales else faltas
+                    if effective_faltas > 0:
+                        divisor = dias_periodo if is_monthly else 15
+                        vales_despensa = (base_vales / divisor) * (divisor - effective_faltas)
+                    else:
+                        vales_despensa = base_vales
+                        
+                if fondo_ahorro_activo == "SI":
+                    if ajuste_fondo_ahorro is not None:
+                        fondo_ahorro = ajuste_fondo_ahorro
+                    else:
+                        base_fa = sueldo_nominal * (fa_pct / 100.0)
+                        cap_fa = 1.3 * uma * dias_mes
+                        fondo_ahorro = min(base_fa, cap_fa)
+                else:
+                    fondo_ahorro = 0.0
+                    
+                percepcion_sueldos = sueldo_nominal + puntualidad + asistencia + vales_despensa + fondo_ahorro
                 
                 asimilados = emp_data.get("asimilados", 0.0)
                 gasolina = emp_data.get("gasolina", 0.0)
@@ -4312,26 +4427,14 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 deuda_carro = emp_data.get("deuda_carro", 0.0)
                 total_otros = asimilados + gasolina + socio + efectivo + facturado + deuda_carro
                 bruto_mensual = percepcion_sueldos + total_otros
-                bruto_quincenal = bruto_mensual / 2
+                bruto_quincenal = bruto_mensual if is_monthly else bruto_mensual / 2.0
                 
-                faltas = emp_data.get("faltas", 0)
-                descuento_faltas = (bruto_quincenal / 15.0) * faltas if faltas > 0 else 0.0
-                descuento_adicional = emp_data.get("descuento_adicional", 0.0)
-                neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) / 2 / 15 * (15 - faltas))
-
-                ingreso_str = emp_data.get("ingreso", "")
-                years_of_labores = 0.0
-                vac = 12
-                if ingreso_str:
-                    try:
-                        ingreso_dt = datetime.datetime.strptime(ingreso_str, "%Y-%m-%d")
-                        _, active_date_obj = parse_period_dates(schema.get("period", ""))
-                        active_dt = datetime.datetime(active_date_obj.year, active_date_obj.month, active_date_obj.day)
-                        years_of_labores = (active_dt - ingreso_dt).days / 365.25
-                        y = max(1, int(years_of_labores))
-                        vac = calculate_vacation_days(y)
-                    except:
-                        pass
+                if is_monthly:
+                    descuento_faltas = (sueldo_nominal / dias_periodo) * faltas if faltas > 0 else 0.0
+                    neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) - descuento_faltas)
+                else:
+                    descuento_faltas = (sueldo_nominal / 2.0 / 15.0) * faltas if faltas > 0 else 0.0
+                    neto_quincenal = max(0.0, (bruto_mensual - descuento_adicional) / 2.0 - descuento_faltas)
                 
                 emp_company_name = emp_data.get("empresa", "").strip().upper()
                 emp_company = companies_map.get(emp_company_name, {
@@ -4343,6 +4446,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
                 fa_status = f"Sí, activo (`={fa_pct:.0f}%`): `=Sueldo_Nominal * {fa_pct / 100:.2f}` que equivale a **${fondo_ahorro:,.2f}**" if (fondo_ahorro_activo == "SI" and fondo_ahorro > 0) else "No activo"
                 
+                periodo_label = "Mensual" if is_monthly else "Quincenal"
                 local_desglose = f"""### 📝 Explicación del Cálculo de Nómina (Offline)
 
 *Nota: No hay una clave de API de Gemini válida configurada en la base de datos, por lo que se muestra el desglose matemático contable estándar.*
@@ -4368,9 +4472,9 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
   Fórmula Excel: `=Salario_Diario * Días_del_Mes`  
   Cálculo: `=${salario_diario:,.2f} * {dias_mes:.1f}`  
   Resultado: **${sueldo_nominal:,.2f}**
-* **Premios de Asistencia y Puntualidad (10% del SDI mensual cada uno):**  
-  * **Puntualidad:** **${puntualidad:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
-  * **Asistencia:** **${asistencia:,.2f}** (Fórmula Excel: `=SDI * 10% * Días_del_Mes` ➡️ `=${sdi:,.2f} * 0.10 * {dias_mes:.1f}`)  
+* **Premios de Asistencia y Puntualidad (10% del Salario Diario Nominal mensual cada uno):**  
+  * **Puntualidad:** **${puntualidad:,.2f}** (Fórmula Excel: `=Salario_Diario * 10% * Días_del_Mes` ➡️ `=${salario_diario:,.2f} * 0.10 * {dias_mes:.1f}`)  
+  * **Asistencia:** **${asistencia:,.2f}** (Fórmula Excel: `=Salario_Diario * 10% * Días_del_Mes` ➡️ `=${salario_diario:,.2f} * 0.10 * {dias_mes:.1f}`)  
 * **Vales de Despensa:**  
   Fórmula Excel: `=UMA * Porcentaje_Vales * Días_del_Mes`  
   Cálculo: `=${uma:,.2f} * {vales_pct / 100:.2f} * {dias_mes:.1f}`  
@@ -4391,15 +4495,15 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
 
 ---
 
-#### 3. Cálculo de Prenómina Quincenal (Pago Actual)
+#### 3. Cálculo de Prenómina {periodo_label} (Pago Actual)
 * **Sueldo Bruto Mensual (Base Total):** **${bruto_mensual:,.2f}** (Sueldo Nominal + Otros Conceptos)
-* **Sueldo Bruto Quincenal:** **${bruto_quincenal:,.2f}** (Fórmula Excel: `=Sueldo_Bruto_Mensual / 2`)
-* **Ajustes, Faltas y Descuentos en la Quincena:**
-  * **Descuento por Faltas ({faltas} días):** Deducción de **${descuento_faltas:,.2f}**
+* **Sueldo Bruto {periodo_label}:** **${bruto_quincenal:,.2f}** (Fórmula Excel: `=Sueldo_Bruto_Mensual` si es mensual, o `=Sueldo_Bruto_Mensual / 2` si es quincenal)
+* **Ajustes, Faltas y Descuentos en el Período:**
+  * **Descuento por Faltas ({faltas} días):** Deducción de **${descuento_faltas:,.2f}** (Fórmula Excel: `=Sueldo_Nominal / {dias_periodo} * Faltas` si es mensual, o `=Sueldo_Nominal / 2 / 15 * Faltas` si es quincenal)
   * **Descuento Adicional:** **${descuento_adicional:,.2f}**
-* **Sueldo Neto Quincenal Final a Pagar:**  
-  Fórmula Excel: `=(Sueldo_Bruto_Mensual - Descuento_Adicional) / 2 / 15 * (15 - Faltas)`  
-  Cálculo: `=(${bruto_mensual:,.2f} - ${descuento_adicional:,.2f}) / 2 / 15 * (15 - {faltas})`  
+* **Sueldo Neto {periodo_label} Final a Pagar:**  
+  Fórmula Excel: `=Sueldo_Bruto_{periodo_label} - Descuento_Adicional - Descuento_Faltas`  
+  Cálculo: `=(${bruto_quincenal:,.2f} - ${descuento_adicional:,.2f}) - ${descuento_faltas:,.2f}`  
   Resultado: **${neto_quincenal:,.2f}**
 """
                 collab_details = f"""Por favor, genera la explicación inicial y detallada del cálculo de prenómina para este colaborador:
@@ -4564,9 +4668,44 @@ Nota: El descuento por faltas se calculará automáticamente con base en las fal
                     "parts": [{"text": new_message}]
                 })
 
-            # Call AI Chat API (supports Google and OpenRouter)
+            # Call AI Chat API (supports Google via Antigravity SDK, and OpenRouter as fallback)
             try:
-                text = call_ai_api_chat(system_prompt, contents, schema)
+                config_info = get_ai_config(schema)
+                api_key = config_info.get("api_key")
+                model = config_info.get("model")
+                provider = config_info.get("provider", "google")
+                
+                if not api_key:
+                    raise Exception("Clave de API de IA no configurada.")
+                
+                if provider == "openrouter":
+                    text = call_ai_api_chat(system_prompt, contents, schema)
+                else:
+                    # Google Gemini via Antigravity SDK
+                    import asyncio
+                    from google import antigravity
+                    
+                    # Convert history format into a single prompt content
+                    prompt_parts = []
+                    for entry in contents:
+                        role = "Usuario" if entry.get("role") == "user" else "Asistente"
+                        text_part = entry["parts"][0]["text"] if entry.get("parts") else ""
+                        prompt_parts.append(f"{role}: {text_part}")
+                    prompt_content = "\n\n".join(prompt_parts)
+                    
+                    async def _run_agent():
+                        config = antigravity.LocalAgentConfig(
+                            api_key=api_key,
+                            model=model or "gemini-2.5-flash",
+                            system_instructions=system_prompt,
+                        )
+                        agent = antigravity.Agent(config)
+                        async with agent:
+                            response = await agent.chat(prompt_content)
+                            return await response.text()
+                    
+                    text = asyncio.run(_run_agent())
+                
                 if not text:
                     raise Exception("AI API returned empty response")
                     
